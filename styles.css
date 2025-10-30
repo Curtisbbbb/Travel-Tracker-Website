@@ -722,6 +722,29 @@ button.small {
   gap: 12px;
 }
 
+.classic-embed {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.classic-embed .panel-header {
+  padding: 28px;
+}
+
+.classic-frame {
+  flex: 1;
+  background: rgba(5, 9, 20, 0.6);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.classic-frame iframe {
+  width: 100%;
+  height: calc(100vh - 240px);
+  border: none;
+  background: #040b1b;
+}
+
 .map-marker {
   display: grid;
   place-items: center;
@@ -839,6 +862,10 @@ button.small {
   .header-actions {
     width: 100%;
     justify-content: stretch;
+  }
+
+  .classic-frame iframe {
+    height: 75vh;
   }
 }
 

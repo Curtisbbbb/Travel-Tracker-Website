@@ -97,6 +97,7 @@
         <button class="nav-link" data-view="budget" type="button">Budget HQ</button>
         <button class="nav-link" data-view="itinerary" type="button">Itinerary Lab</button>
         <button class="nav-link" data-view="map" type="button">Route Map</button>
+        <button class="nav-link" data-view="classic" type="button">Classic Tracker</button>
       </nav>
       <div class="sidebar-footer">
         <button id="openQuickDestination" class="ghost" type="button">Add destination</button>
@@ -272,6 +273,21 @@
           <div id="mapContainer" class="map-container"></div>
         </div>
       </section>
+
+      <section class="view" data-view="classic">
+        <div class="panel full classic-embed">
+          <div class="panel-header">
+            <div>
+              <h2>Classic Budget Tracker</h2>
+              <p class="panel-sub">The original Southeast Asia tracker experience embedded here.</p>
+            </div>
+            <button class="ghost" type="button" onclick="window.open('classic-budget/index.html','_blank')">Open in new tab</button>
+          </div>
+          <div class="classic-frame">
+            <iframe src="classic-budget/index.html" title="Classic Travel Budget Tracker" loading="lazy"></iframe>
+          </div>
+        </div>
+      </section>
     </main>
   </div>
 
@@ -291,6 +307,10 @@
     integrity="sha256-vS3cP53uN5mt0tN74YxPvste19h9Up7s+M41JCsAo8E="
     crossorigin=""
   ></script>
+  <script>
+    window.SUPABASE_URL = 'https://hjeekvjgqbbefazylmtu.supabase.co';
+    window.SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZWVrdmpncWJiZWZhenlsbXR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE4NTMzMjEsImV4cCI6MjA3NzQyOTMyMX0.gcx9FMI8qsXVcZ7G74D9qf_w0M1l6jYCRpsjw9kiqCw';
+  </script>
   <script src="travel.js" type="module"></script>
 </body>
 </html>

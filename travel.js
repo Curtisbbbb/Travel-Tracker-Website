@@ -3,16 +3,12 @@ import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 const SUPABASE_URL = window.SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || '';
 
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  console.warn('Supabase credentials are missing. Set window.SUPABASE_URL and window.SUPABASE_ANON_KEY before loading travel.js.');
-}
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+const supabase = SUPABASE_URL && SUPABASE_ANON_KEY ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
   },
-});
+}) : null;
 
 const elements = {
   authScreen: document.getElementById('authScreen'),
@@ -99,6 +95,11 @@ const viewConfig = {
     subtitle: 'See the entire journey come alive.',
     action: 'Center map',
   },
+  classic: {
+    title: 'Classic Tracker',
+    subtitle: 'Run the original Southeast Asia budgeting toolkit.',
+    action: 'Open classic in tab',
+  },
 };
 
 const state = {
@@ -123,6 +124,15 @@ const currencyFormatter = new Intl.NumberFormat('en-GB', {
 });
 
 document.addEventListener('DOMContentLoaded', () => {
+  if (!supabase) {
+    renderConfigurationWarning();
+    return;
+  }
+
+  initialize();
+});
+
+function initialize() {
   setupAuthTabs();
   setupAuthForms();
   setupNavigation();
@@ -130,7 +140,17 @@ document.addEventListener('DOMContentLoaded', () => {
   setupActions();
   seedDefaultDates();
   void tryRestoreSession();
-});
+}
+
+function renderConfigurationWarning() {
+  const message = 'Supabase configuration missing. Set window.SUPABASE_URL and window.SUPABASE_ANON_KEY before loading.';
+  if (elements.loginFeedback) {
+    elements.loginFeedback.textContent = message;
+  }
+  if (elements.signupFeedback) {
+    elements.signupFeedback.textContent = message;
+  }
+}
 
 function setupAuthTabs() {
   elements.authTabs.forEach((tab) => {
@@ -237,8 +257,8 @@ function setupAuthForms() {
 }
 
 function clearAuthFeedback() {
-  elements.loginFeedback.textContent = '';
-  elements.signupFeedback.textContent = '';
+  if (elements.loginFeedback) elements.loginFeedback.textContent = '';
+  if (elements.signupFeedback) elements.signupFeedback.textContent = '';
 }
 
 function setupNavigation() {
@@ -308,7 +328,7 @@ function setupForms() {
       .single();
 
     if (error) {
-      console.error(error);
+      console.error('Destination save failed', error);
       elements.destinationFeedback.textContent = error.message || 'Could not save destination.';
       return;
     }
@@ -320,9 +340,10 @@ function setupForms() {
 
     elements.destinationForm.reset();
     seedDefaultDates();
+    focusElement(elements.expenseDestination);
+
     await loadDestinations();
     renderAll();
-    focusElement(elements.expenseDestination);
   });
 
   elements.expenseForm.addEventListener('submit', async (event) => {
@@ -359,7 +380,7 @@ function setupForms() {
     });
 
     if (error) {
-      console.error(error);
+      console.error('Expense save failed', error);
       elements.expenseFeedback.textContent = error.message || 'Could not record the expense.';
       return;
     }
@@ -367,6 +388,7 @@ function setupForms() {
     elements.expenseFeedback.textContent = 'Expense tracked. Budget intel updated.';
     elements.expenseForm.reset();
     seedDefaultDates();
+
     await loadDestinations();
     renderBudgetPanel();
     renderDashboard();
@@ -430,6 +452,14 @@ function setupActions() {
       case 'itinerary':
         openDayForm();
         break;
+      case 'classic': {
+        const win = window.open('classic-budget/index.html', '_blank');
+        if (win) {
+          win.opener = null;
+          win.focus();
+        }
+        break;
+      }
       default:
         break;
     }
@@ -484,7 +514,7 @@ async function enterApp(user) {
 
   elements.userName.textContent = state.profile?.name || 'Explorer';
   elements.userEmail.textContent = currentUser.email || '';
-  elements.userInitials.textContent = deriveInitials(state.profile?.name || currentUser.email);
+  elements.userInitials.textContent = deriveInitials(state.profile?.name || currentUser.email || 'TA');
 
   elements.authScreen.classList.add('hidden');
   elements.appShell.classList.remove('hidden');
@@ -509,7 +539,11 @@ function exitApp() {
 
 async function loadProfile() {
   if (!currentUser) return;
-  const { data, error } = await supabase.from('profiles').select('id, full_name').eq('id', currentUser.id).single();
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, full_name')
+    .eq('id', currentUser.id)
+    .maybeSingle();
 
   if (error && error.code !== 'PGRST116') {
     console.error('Could not load profile', error);
@@ -544,25 +578,24 @@ async function ensureProfileRecord(user, name) {
 
 async function loadDestinations() {
   if (!currentUser) return;
+
   const { data, error } = await supabase
     .from('destinations')
-    .select(
-      `
-        id,
-        location,
-        start_date,
-        end_date,
-        nights,
-        budget,
-        activities,
-        coordinates,
-        place_name,
-        created_at,
-        updated_at,
-        destination_days ( id, title, date, notes, created_at, updated_at ),
-        destination_expenses ( id, category, amount, date, notes, created_at )
-      `
-    )
+    .select(`
+      id,
+      location,
+      start_date,
+      end_date,
+      nights,
+      budget,
+      activities,
+      coordinates,
+      place_name,
+      created_at,
+      updated_at,
+      destination_days ( id, title, date, notes, created_at, updated_at ),
+      destination_expenses ( id, category, amount, date, notes, created_at )
+    `)
     .eq('user_id', currentUser.id)
     .order('start_date', { ascending: true });
 
@@ -585,6 +618,41 @@ async function loadDestinations() {
 }
 
 function normalizeDestination(row) {
+  const activities = Array.isArray(row.activities) ? row.activities : [];
+  let coordinates = null;
+  if (row.coordinates && typeof row.coordinates === 'object') {
+    const lat = Number(row.coordinates.lat);
+    const lng = Number(row.coordinates.lng);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      coordinates = { lat, lng };
+    }
+  }
+
+  const days = Array.isArray(row.destination_days)
+    ? row.destination_days.map((day) => ({
+        id: day.id,
+        title: day.title,
+        date: day.date,
+        notes: day.notes,
+        createdAt: day.created_at,
+        updatedAt: day.updated_at,
+      }))
+    : [];
+
+  const expenses = Array.isArray(row.destination_expenses)
+    ? row.destination_expenses.map((expense) => ({
+        id: expense.id,
+        category: expense.category,
+        amount: expense.amount,
+        date: expense.date,
+        notes: expense.notes,
+        createdAt: expense.created_at,
+      }))
+    : [];
+
+  days.sort((a, b) => new Date(a.date || row.start_date) - new Date(b.date || row.start_date));
+  expenses.sort((a, b) => new Date(b.date) - new Date(a.date));
+
   return {
     id: row.id,
     location: row.location,
@@ -592,27 +660,13 @@ function normalizeDestination(row) {
     endDate: row.end_date,
     nights: row.nights,
     budget: row.budget || 0,
-    activities: Array.isArray(row.activities) ? row.activities : [],
-    coordinates: row.coordinates,
+    activities,
+    coordinates,
     placeName: row.place_name,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    days: (row.destination_days || []).map((day) => ({
-      id: day.id,
-      title: day.title,
-      date: day.date,
-      notes: day.notes,
-      createdAt: day.created_at,
-      updatedAt: day.updated_at,
-    })),
-    expenses: (row.destination_expenses || []).map((expense) => ({
-      id: expense.id,
-      category: expense.category,
-      amount: expense.amount,
-      date: expense.date,
-      notes: expense.notes,
-      createdAt: expense.created_at,
-    })),
+    days,
+    expenses,
   };
 }
 
@@ -792,7 +846,9 @@ function renderExpenseList(expenses) {
   elements.expenseList.innerHTML = expenses
     .map((expense) => {
       const date = new Date(expense.date);
-      const formattedDate = isFinite(date) ? date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : expense.date;
+      const formattedDate = Number.isFinite(date.getTime())
+        ? date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+        : expense.date;
       const notes = expense.notes ? escapeHtml(expense.notes) : '—';
       const categoryLabel = CATEGORY_LABELS[expense.category] || expense.category;
       return `
@@ -864,7 +920,6 @@ function renderItineraryDetail(destination) {
 
   const days = destination.days
     .slice()
-    .sort((a, b) => new Date(a.date || destination.startDate) - new Date(b.date || destination.startDate))
     .map((day) => {
       const dateLabel = day.date
         ? new Date(day.date).toLocaleDateString('en-GB', { weekday: 'short', month: 'short', day: 'numeric' })
@@ -950,7 +1005,7 @@ function renderItineraryDetail(destination) {
     });
 
     if (error) {
-      console.error(error);
+      console.error('Day save failed', error);
       return;
     }
 
@@ -982,8 +1037,360 @@ function renderMap() {
   const coords = [];
 
   sorted.forEach((dest, index) => {
-    const marker = L.marker([dest.coordinates.lat, dest.coordinates.lng], {
+    const lat = Number(dest.coordinates.lat);
+    const lng = Number(dest.coordinates.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return;
+    }
+
+    const marker = L.marker([lat, lng], {
       icon: L.divIcon({
         className: 'map-marker',
-        html: `<span>${index + 1}</span>`;
-*** End Patch
+        html: `<span>${index + 1}</span>`,
+        iconSize: [36, 36],
+        iconAnchor: [18, 18],
+      }),
+    }).addTo(mapInstance);
+
+    marker.bindPopup(`
+      <strong>${escapeHtml(dest.location)}</strong><br />
+      ${formatDateRange(dest.startDate, dest.endDate)}
+    `);
+
+    marker.on('click', () => {
+      selectedDestinationId = dest.id;
+      switchView('itinerary');
+      renderItinerary();
+    });
+
+    mapMarkers.push(marker);
+    coords.push([lat, lng]);
+  });
+
+  if (coords.length > 1) {
+    routeLine = L.polyline(coords, {
+      color: '#6c63ff',
+      weight: 3,
+      opacity: 0.7,
+    }).addTo(mapInstance);
+    mapInstance.fitBounds(routeLine.getBounds(), { padding: [48, 48] });
+  } else if (coords.length === 1) {
+    mapInstance.setView(coords[0], 8);
+  }
+
+  updateHeatLayer();
+}
+
+async function removeExpense(expenseId) {
+  if (!expenseId) return;
+  const { error } = await supabase.from('destination_expenses').delete().eq('id', expenseId);
+  if (error) {
+    console.error('Failed to remove expense', error);
+    return;
+  }
+  await loadDestinations();
+  renderBudgetPanel();
+  renderDashboard();
+}
+
+async function removeDay(dayId) {
+  if (!dayId) return;
+  const { error } = await supabase.from('destination_days').delete().eq('id', dayId);
+  if (error) {
+    console.error('Failed to remove day', error);
+    return;
+  }
+  await loadDestinations();
+  renderItinerary();
+}
+
+async function editDay(dayId) {
+  const destination = state.destinations.find((dest) => dest.days.some((day) => day.id === dayId));
+  if (!destination) return;
+  const day = destination.days.find((item) => item.id === dayId);
+  if (!day) return;
+
+  const newTitle = prompt('Update the day title', day.title) ?? day.title;
+  const newDate = prompt('Update the date (YYYY-MM-DD) or leave empty', day.date || '') ?? day.date;
+  const newNotes = prompt('Update the highlights', day.notes || '') ?? day.notes;
+
+  const updates = {
+    title: newTitle.trim() || day.title,
+    date: newDate.trim() || null,
+    notes: newNotes.trim(),
+  };
+
+  const { error } = await supabase.from('destination_days').update(updates).eq('id', dayId);
+  if (error) {
+    console.error('Failed to update day', error);
+    return;
+  }
+
+  await loadDestinations();
+  renderItinerary();
+}
+
+async function editActivities() {
+  const destination = getDestinationById(selectedDestinationId);
+  if (!destination) return;
+  const value = prompt('Update the top experiences (comma separated)', destination.activities.join(', '));
+  if (value === null) return;
+
+  const activities = value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  const { error } = await supabase
+    .from('destinations')
+    .update({ activities })
+    .eq('id', destination.id);
+
+  if (error) {
+    console.error('Failed to update activities', error);
+    return;
+  }
+
+  await loadDestinations();
+  renderDashboard();
+  renderItinerary();
+}
+
+async function adjustBudget() {
+  const destination = getDestinationById(selectedDestinationId);
+  if (!destination) return;
+  const value = prompt('Update the budget amount', destination.budget || 0);
+  if (value === null) return;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric < 0) return;
+
+  const { error } = await supabase
+    .from('destinations')
+    .update({ budget: numeric })
+    .eq('id', destination.id);
+
+  if (error) {
+    console.error('Failed to update budget', error);
+    return;
+  }
+
+  await loadDestinations();
+  renderBudgetPanel();
+  renderDashboard();
+  renderItinerary();
+}
+
+async function deleteDestination() {
+  const destination = getDestinationById(selectedDestinationId);
+  if (!destination) return;
+  const confirmation = confirm(`Remove ${destination.location} and all its plans?`);
+  if (!confirmation) return;
+
+  const { error } = await supabase.from('destinations').delete().eq('id', destination.id);
+  if (error) {
+    console.error('Failed to delete destination', error);
+    return;
+  }
+
+  await loadDestinations();
+  renderAll();
+}
+
+function switchView(view) {
+  if (!viewConfig[view]) return;
+  currentView = view;
+  elements.navLinks.forEach((link) => link.classList.toggle('is-active', link.dataset.view === view));
+  document.querySelectorAll('.view').forEach((section) => {
+    section.classList.toggle('is-active', section.dataset.view === view);
+  });
+  elements.viewTitle.textContent = viewConfig[view].title;
+  elements.viewSubtitle.textContent = viewConfig[view].subtitle;
+  elements.primaryAction.textContent = viewConfig[view].action;
+
+  if (view === 'map') {
+    setTimeout(() => {
+      mapInstance?.invalidateSize();
+      renderMap();
+    }, 200);
+  }
+}
+
+function initializeMap() {
+  mapInstance = L.map(elements.mapContainer, {
+    center: [20, 0],
+    zoom: 2,
+    zoomControl: false,
+  });
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors',
+    maxZoom: 18,
+  }).addTo(mapInstance);
+
+  L.control.zoom({ position: 'bottomright' }).addTo(mapInstance);
+}
+
+function centerMap() {
+  if (!mapInstance) return;
+  const destinations = getDestinations().filter((dest) => dest.coordinates);
+  if (!destinations.length) {
+    mapInstance.setView([20, 0], 2);
+    return;
+  }
+  const bounds = L.latLngBounds(destinations.map((dest) => [dest.coordinates.lat, dest.coordinates.lng]));
+  mapInstance.fitBounds(bounds, { padding: [48, 48] });
+}
+
+function toggleHeat() {
+  heatActive = !heatActive;
+  updateHeatLayer();
+  elements.toggleHeat.textContent = heatActive ? 'Hide heat' : 'Toggle heat';
+}
+
+function updateHeatLayer() {
+  if (!mapInstance) return;
+  if (heatLayer) {
+    heatLayer.remove();
+    heatLayer = null;
+  }
+  if (!heatActive) return;
+  const destinations = getDestinations().filter((dest) => dest.coordinates);
+  if (!destinations.length) return;
+  heatLayer = L.layerGroup(
+    destinations.map((dest) =>
+      L.circleMarker([dest.coordinates.lat, dest.coordinates.lng], {
+        radius: 40,
+        opacity: 0,
+        fillOpacity: 0.18,
+        fillColor: '#6c63ff',
+      })
+    )
+  );
+  heatLayer.addTo(mapInstance);
+}
+
+function openDayForm() {
+  if (!selectedDestinationId) {
+    switchView('budget');
+    focusElement(elements.destinationLocation);
+    return;
+  }
+  const titleInput = document.getElementById('dayTitle');
+  if (titleInput) {
+    titleInput.focus();
+  } else {
+    renderItinerary();
+    document.getElementById('dayTitle')?.focus();
+  }
+}
+
+function clearForms() {
+  elements.loginForm.reset();
+  elements.signupForm.reset();
+  elements.destinationForm.reset();
+  elements.expenseForm.reset();
+}
+
+function seedDefaultDates() {
+  const today = new Date();
+  const isoToday = today.toISOString().slice(0, 10);
+  if (elements.destinationStart && !elements.destinationStart.value) {
+    elements.destinationStart.value = isoToday;
+  }
+  if (elements.expenseDate && !elements.expenseDate.value) {
+    elements.expenseDate.value = isoToday;
+  }
+}
+
+function getDestinations() {
+  return state.destinations.slice();
+}
+
+function getDestinationById(id) {
+  return state.destinations.find((dest) => dest.id === id) || null;
+}
+
+function ensureAuthenticated() {
+  if (!currentUser) {
+    throw new Error('User not authenticated');
+  }
+}
+
+async function geocodeDestination(destination) {
+  const query = destination.location;
+  const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`;
+  const response = await fetch(url, {
+    headers: {
+      'Accept-Language': 'en-US,en;q=0.9',
+    },
+  });
+  if (!response.ok) {
+    throw new Error('Geocoding failed');
+  }
+  const data = await response.json();
+  if (Array.isArray(data) && data.length) {
+    const item = data[0];
+    const lat = Number(item.lat);
+    const lng = Number(item.lon);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      destination.coordinates = { lat, lng };
+      destination.placeName = item.display_name;
+    }
+  }
+}
+
+function computeEndDate(start, nights) {
+  const date = new Date(start);
+  if (!Number.isFinite(date.getTime())) return start;
+  date.setDate(date.getDate() + nights);
+  return date.toISOString().slice(0, 10);
+}
+
+function daysBetween(a, b) {
+  const diff = truncateDate(b).getTime() - truncateDate(a).getTime();
+  return Math.round(diff / (1000 * 60 * 60 * 24));
+}
+
+function truncateDate(date) {
+  const copy = new Date(date);
+  copy.setHours(0, 0, 0, 0);
+  return copy;
+}
+
+function formatDateRange(start, end) {
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+  const opts = { month: 'short', day: 'numeric' };
+  if (startDate.getFullYear() !== endDate.getFullYear()) {
+    opts.year = 'numeric';
+  }
+  if (!Number.isFinite(startDate.getTime()) || !Number.isFinite(endDate.getTime())) {
+    return `${start} - ${end}`;
+  }
+  return `${startDate.toLocaleDateString('en-GB', opts)} → ${endDate.toLocaleDateString('en-GB', opts)}`;
+}
+
+function escapeHtml(value) {
+  if (typeof value !== 'string') return value;
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function focusElement(element) {
+  if (!element) return;
+  requestAnimationFrame(() => element.focus());
+}
+
+function deriveInitials(value) {
+  if (!value) return 'TA';
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join('') || 'TA';
+}
