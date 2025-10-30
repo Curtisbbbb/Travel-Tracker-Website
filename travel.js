@@ -95,11 +95,6 @@ const viewConfig = {
     subtitle: 'See the entire journey come alive.',
     action: 'Center map',
   },
-  classic: {
-    title: 'Classic Tracker',
-    subtitle: 'Run the original Southeast Asia budgeting toolkit.',
-    action: 'Open classic in tab',
-  },
 };
 
 const state = {
@@ -452,14 +447,6 @@ function setupActions() {
       case 'itinerary':
         openDayForm();
         break;
-      case 'classic': {
-        const win = window.open('classic-budget/index.html', '_blank');
-        if (win) {
-          win.opener = null;
-          win.focus();
-        }
-        break;
-      }
       default:
         break;
     }
