@@ -2,333 +2,295 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, shrink-to-fit=no" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="Travel Budget" />
-  <meta name="mobile-web-app-capable" content="yes" />
-  <meta name="description" content="Track your travel expenses across Southeast Asia with our budget tracker" />
-  <meta name="theme-color" content="#1E3A5F" />
-  <title>Travel Budget Tracker</title>
-  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
-  <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'><rect width='120' height='120' fill='%231E3A5F'/><g transform='translate(20,35)'><path d='M14 64l90-24c5-1.3 9 3.2 6.8 8.1L101 74l9.8 20.5c2.2 4.8-1.7 9.9-6.9 8.6L14 79l-8 5c-2 1.3-4.5-.1-4.5-2.4v-12.2c0-2.3 2.5-3.8 4.5-2.4l8 5z' fill='white'/><path d='M52 54l-26-19-16 4 20 20z' fill='white' opacity='0.8'/><path d='M52 74l-22 16-16-4 18-18z' fill='white' opacity='0.8'/></g></svg>" />
-  <link rel="manifest" href="manifest.json" />
-  <link rel="stylesheet" href="styles.css">
-  <link rel="stylesheet" href="mobile.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0c1631" />
+  <title>Travel Atlas | Journey Planner &amp; Budget Tracker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700&family=Space+Grotesk:wght@500&display=swap" rel="stylesheet" />
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-QV8tZKUE1pU4ShvD5LR/1l0wLD/NFZ8Jz7gPcqR8wY8="
+    crossorigin=""
+  />
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <div id="loading" class="loading">Loading...</div>
-  <div class="mobile-overlay"></div>
-  <div class="app">
-    <button class="menu-toggle" aria-label="Toggle Menu">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <line x1="3" y1="12" x2="21" y2="12"></line>
-        <line x1="3" y1="6" x2="21" y2="6"></line>
-        <line x1="3" y1="18" x2="21" y2="18"></line>
-      </svg>
-    </button>
-    
-    <aside class="sidebar">
-      <div class="sidebar-header">
-        <div class="brand">
-          <div class="logo">
-            <svg class="plane-logo" width="48" height="48" viewBox="0 0 120 120" aria-hidden="true">
-              <g class="plane-logo__trails">
-                <path d="M14 84c-8 6-12 12-12 18" />
-                <path d="M18 90c-5 4-7 9-7 13" />
-              </g>
-              <g class="plane-logo__plane">
-                <path class="plane-logo__body" d="M14 64l90-24c5-1.3 9 3.2 6.8 8.1L101 74l9.8 20.5c2.2 4.8-1.7 9.9-6.9 8.6L14 79l-8 5c-2 1.3-4.5-.1-4.5-2.4v-12.2c0-2.3 2.5-3.8 4.5-2.4l8 5z"/>
-                <path class="plane-logo__wing" d="M52 54l-26-19-16 4 20 20z"/>
-                <path class="plane-logo__tail" d="M52 74l-22 16-16-4 18-18z"/>
-              </g>
-            </svg>
-          </div>
-          <div class="brand-text">
-            <div class="app-name">South East Asia</div>
-            <div class="app-sub">Travel Budget Tracker</div>
-          </div>
-        </div>
-        <button class="close-menu" aria-label="Close Menu">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
-          </svg>
-        </button>
+  <div class="sky-glow" aria-hidden="true"></div>
+  <div class="starfield" aria-hidden="true"></div>
+
+  <div id="authScreen" class="auth-screen">
+    <div class="auth-card">
+      <div class="auth-decor">
+        <div class="badge">Travel Atlas</div>
+        <h1>Craft every journey.<br />Own every moment.</h1>
+        <p>Design immersive itineraries, balance your travel finances, and chart routes that wow. Your personal HQ for world-class adventures.</p>
       </div>
-      <nav class="nav">
-        <a class="nav-item" data-country="thailand" href="#thailand">
-          <span class="country-flag">🇹🇭</span>
-          <span class="country-name">Thailand</span>
-        </a>
-        <a class="nav-item" data-country="laos" href="#laos">
-          <span class="country-flag">🇱🇦</span>
-          <span class="country-name">Laos</span>
-        </a>
-        <a class="nav-item" data-country="vietnam" href="#vietnam">
-          <span class="country-flag">🇻🇳</span>
-          <span class="country-name">Vietnam</span>
-        </a>
-        <a class="nav-item" data-country="cambodia" href="#cambodia">
-          <span class="country-flag">🇰🇭</span>
-          <span class="country-name">Cambodia</span>
-        </a>
-        <a class="nav-item" data-country="malaysia" href="#malaysia">
-          <span class="country-flag">🇲🇾</span>
-          <span class="country-name">Malaysia</span>
-        </a>
-        <a class="nav-item" data-country="philippines" href="#philippines">
-          <span class="country-flag">🇵🇭</span>
-          <span class="country-name">Philippines</span>
-        </a>
-        <a class="nav-item" data-country="indonesia" href="#indonesia">
-          <span class="country-flag">🇮🇩</span>
-          <span class="country-name">Indonesia</span>
-        </a>
+      <div class="auth-panel">
+        <div class="auth-tabs" role="tablist">
+          <button class="auth-tab is-active" data-auth-tab="login" type="button">Log In</button>
+          <button class="auth-tab" data-auth-tab="signup" type="button">Create Account</button>
+        </div>
+
+        <form id="loginForm" class="auth-form is-active" novalidate>
+          <div class="field">
+            <label for="loginEmail">Email</label>
+            <input id="loginEmail" name="email" type="email" autocomplete="email" required />
+          </div>
+          <div class="field">
+            <label for="loginPassword">Password</label>
+            <input id="loginPassword" name="password" type="password" autocomplete="current-password" required />
+          </div>
+          <button class="primary" type="submit">Enter Travel Atlas</button>
+          <p class="auth-feedback" id="loginFeedback" role="alert"></p>
+        </form>
+
+        <form id="signupForm" class="auth-form" novalidate>
+          <div class="field">
+            <label for="signupName">Full name</label>
+            <input id="signupName" name="name" type="text" autocomplete="name" required />
+          </div>
+          <div class="field">
+            <label for="signupEmail">Email</label>
+            <input id="signupEmail" name="email" type="email" autocomplete="email" required />
+          </div>
+          <div class="field-group">
+            <div class="field">
+              <label for="signupPassword">Password</label>
+              <input id="signupPassword" name="password" type="password" autocomplete="new-password" minlength="6" required />
+            </div>
+            <div class="field">
+              <label for="signupConfirm">Confirm</label>
+              <input id="signupConfirm" name="confirm" type="password" autocomplete="new-password" required />
+            </div>
+          </div>
+          <button class="primary" type="submit">Launch Your Atlas</button>
+          <p class="auth-feedback" id="signupFeedback" role="alert"></p>
+        </form>
+
+        <p class="auth-meta">Passwords are encrypted and stored locally on this device. Perfect for prototyping your dream travel concierge.</p>
+      </div>
+    </div>
+  </div>
+
+  <div id="appShell" class="app-shell hidden">
+    <aside class="app-sidebar">
+      <div class="sidebar-brand">
+        <div class="logo">
+          <span class="logo-icon">✧</span>
+        </div>
+        <div class="logo-copy">
+          <span>Travel Atlas</span>
+          <small>Command Center</small>
+        </div>
+      </div>
+      <div class="user-panel">
+        <div class="user-avatar" id="userInitials">TA</div>
+        <div>
+          <div class="user-name" id="userName"></div>
+          <div class="user-email" id="userEmail"></div>
+        </div>
+      </div>
+      <nav class="sidebar-nav">
+        <button class="nav-link is-active" data-view="dashboard" type="button">Dashboard</button>
+        <button class="nav-link" data-view="budget" type="button">Budget HQ</button>
+        <button class="nav-link" data-view="itinerary" type="button">Itinerary Lab</button>
+        <button class="nav-link" data-view="map" type="button">Route Map</button>
       </nav>
+      <div class="sidebar-footer">
+        <button id="openQuickDestination" class="ghost" type="button">Add destination</button>
+        <button id="logout" class="danger" type="button">Sign out</button>
+      </div>
     </aside>
 
-    <main class="main">
-      <header class="topbar">
-        <div class="main-title">
-          <h2>Travel Expenses</h2>
-          <span class="subtitle">Daily Budget Tracker</span>
+    <main class="app-main">
+      <header class="main-header">
+        <div>
+          <h1 id="viewTitle">Dashboard</h1>
+          <p id="viewSubtitle">Your travel intelligence hub.</p>
         </div>
-        <div class="top-actions">
-          <button id="openSync" class="action-button secondary">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7"></path>
-              <polyline points="16 6 12 2 8 6"></polyline>
-              <line x1="12" y1="2" x2="12" y2="15"></line>
-            </svg>
-            <span>Share &amp; Sync</span>
-          </button>
-          <button id="openData" class="action-button">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
-              <polyline points="13 2 13 9 20 9"></polyline>
-            </svg>
-            <span>Data</span>
-          </button>
-          <input id="importTravelFile" type="file" accept="application/json" />
+        <div class="header-actions">
+          <button id="primaryAction" class="primary" type="button">New destination</button>
         </div>
       </header>
 
-      <section class="hero">
-        <h1 id="countryName">Select a Country</h1>
-        <div class="country-budget">
-          <div class="budget-stats">
-            <div class="stat-item">
-              <span class="stat-label">Overall Budget:</span>
-              <span id="overallBudget" class="stat-value editable">£0.00</span>
-            </div>
-            <div class="stat-item">
-              <span class="stat-label">Daily Average Target:</span>
-              <span id="dailyTarget" class="stat-value">£0.00</span>
-            </div>
-            <div class="stat-item">
-              <span class="stat-label">Remaining Budget:</span>
-              <div class="stat-value-with-indicator">
-                <span id="remainingBudget" class="stat-value">£0.00</span>
-              </div>
+      <section class="view is-active" data-view="dashboard">
+        <div class="grid cards" id="dashboardCards">
+          <div class="card highlight">
+            <div class="card-label">Next departure</div>
+            <div class="card-value" id="dashboardNextDestination">No destinations yet</div>
+            <div class="card-meta" id="dashboardCountdown"></div>
+          </div>
+          <div class="card">
+            <div class="card-label">Trips planned</div>
+            <div class="card-value" id="dashboardTripCount">0</div>
+            <div class="card-meta">Destinations that are itinerary-ready.</div>
+          </div>
+          <div class="card">
+            <div class="card-label">Budget utilization</div>
+            <div class="card-value" id="dashboardBudgetProgress">£0 / £0</div>
+            <div class="progress">
+              <div class="progress-bar" id="dashboardBudgetBar"></div>
             </div>
           </div>
-          <div class="plan-days">
-            <div class="stat-item">
-              <span class="stat-label">Planned Days:</span>
-              <span id="plannedDays" class="stat-value editable">0</span>
-            </div>
+          <div class="card">
+            <div class="card-label">Top experiences</div>
+            <div class="card-list" id="dashboardHighlights"></div>
           </div>
         </div>
-        <div id="overallBudgetProgress" class="hero-progress-card"></div>
-        <div class="hero-alerts">
-          <div id="budgetAlerts" class="budget-alerts budget-alerts--list">
-            <div class="meta">Insights appear here once you add some expenses.</div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Upcoming destinations</h2>
+              <p class="panel-sub">Sorted by arrival date. Tap a card to jump in.</p>
+            </div>
           </div>
+          <div id="upcomingDestinations" class="destination-grid"></div>
         </div>
       </section>
 
-      <section class="form-area">
-        <div class="form-panel">
-          <h3 class="section-title">Add an Expense</h3>
-          <div class="form-row">
-            <label>Category</label>
-            <select id="expenseCategory">
-              <option value="accommodation">Accommodation</option>
-              <option value="food">Food & Drinks</option>
-              <option value="transport">Transport</option>
-              <option value="activities">Activities & Sightseeing</option>
-              <option value="shopping">Shopping</option>
-              <option value="other">Other</option>
-            </select>
-          </div>
-          <div class="form-row">
-            <label>Date</label>
-            <input id="tDate" type="date" />
-          </div>
-          <div class="form-row">
-            <label>Amount</label>
-            <div class="amount-inputs">
-              <div class="amount-input">
-                <span class="currency">£</span>
-                <input id="tAmount" type="number" step="0.01" placeholder="0.00" />
+      <section class="view" data-view="budget">
+        <div class="two-column">
+          <div class="column">
+            <div class="panel">
+              <div class="panel-header">
+                <h2>Plan a destination</h2>
               </div>
-              <div class="amount-input local">
-                <span class="currency local-symbol"></span>
-                <input id="tAmountLocal" type="number" step="1" placeholder="0" />
-              </div>
-            </div>
-            <div class="exchange-rate"></div>
-          </div>
-          <div class="form-row repeat-row">
-            <label class="checkbox">
-              <input type="checkbox" id="repeatToggle" />
-              <span>Repeat this expense</span>
-            </label>
-            <div class="repeat-controls">
-              <span class="repeat-label">for</span>
-              <input id="repeatCount" type="number" min="1" max="30" value="3" disabled />
-              <span class="repeat-label">additional day(s)</span>
-            </div>
-          </div>
-          <div class="form-row full">
-            <label>Description</label>
-            <input id="tDesc" type="text" placeholder="Taxi, coffee, museum..." />
-          </div>
-          <div class="form-row full actions-row">
-            <button id="tAdd" class="primary">Add Expense</button>
-          </div>
-          
-        </div>
-
-        <div class="lists-panel">
-          <div class="list-card list-card--summary">
-            <h3 class="section-title">Daily Expenses Summary</h3>
-            <div id="dailySummaries"></div>
-          </div>
-          
-          <div class="list-card analytics-card">
-            <h3 class="section-title">Budget Analytics</h3>
-            <div class="analytics-grid">
-              <div class="analytics-item analytics-item--savings full-span">
-                <span class="analytics-label">Savings from Budget</span>
-                <div class="analytics-savings">
-                  <span id="budgetSavings" class="analytics-value"></span>
-                  <div id="budgetPositionBanner" class="budget-alerts budget-alerts--inline hidden" role="status"></div>
+              <form id="destinationForm" class="form" novalidate>
+                <div class="field">
+                  <label for="destinationLocation">Location</label>
+                  <input id="destinationLocation" name="location" placeholder="e.g. Bangkok, Thailand" required />
                 </div>
+                <div class="field-group">
+                  <div class="field">
+                    <label for="destinationStart">Arrival date</label>
+                    <input id="destinationStart" name="start" type="date" required />
+                  </div>
+                  <div class="field">
+                    <label for="destinationNights">Nights</label>
+                    <input id="destinationNights" name="nights" type="number" min="1" value="3" required />
+                  </div>
+                </div>
+                <div class="field">
+                  <label for="destinationBudget">Budget (home currency)</label>
+                  <input id="destinationBudget" name="budget" type="number" min="0" step="0.01" placeholder="500" />
+                </div>
+                <div class="field">
+                  <label for="destinationActivities">Top experiences (comma separated)</label>
+                  <textarea id="destinationActivities" name="activities" rows="2" placeholder="Street food crawl, Floating markets, Rooftop sundowners"></textarea>
+                </div>
+                <button class="primary" type="submit">Add destination</button>
+                <p class="form-feedback" id="destinationFeedback"></p>
+              </form>
+            </div>
+
+            <div class="panel">
+              <div class="panel-header">
+                <h2>Track an expense</h2>
               </div>
-              <div class="analytics-item">
-                <span class="analytics-label">Days Under Budget</span>
-                <span id="daysUnderBudget" class="analytics-value"></span>
+              <form id="expenseForm" class="form" novalidate>
+                <div class="field">
+                  <label for="expenseDestination">Destination</label>
+                  <select id="expenseDestination"></select>
+                </div>
+                <div class="field-group">
+                  <div class="field">
+                    <label for="expenseCategory">Category</label>
+                    <select id="expenseCategory">
+                      <option value="stay">Stay</option>
+                      <option value="food">Food &amp; Drink</option>
+                      <option value="transport">Transport</option>
+                      <option value="experience">Experiences</option>
+                      <option value="shopping">Shopping</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label for="expenseAmount">Amount</label>
+                    <input id="expenseAmount" type="number" min="0" step="0.01" placeholder="85.50" required />
+                  </div>
+                </div>
+                <div class="field-group">
+                  <div class="field">
+                    <label for="expenseDate">Date</label>
+                    <input id="expenseDate" type="date" required />
+                  </div>
+                  <div class="field">
+                    <label for="expenseNotes">Notes</label>
+                    <input id="expenseNotes" type="text" placeholder="Cooking class" />
+                  </div>
+                </div>
+                <button class="secondary" type="submit">Record expense</button>
+                <p class="form-feedback" id="expenseFeedback"></p>
+              </form>
+            </div>
+          </div>
+
+          <div class="column">
+            <div class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Budget intelligence</h2>
+                  <p class="panel-sub" id="budgetSubtitle">Select a destination to see the breakdown.</p>
+                </div>
+                <select id="budgetDestinationPicker"></select>
               </div>
-              <div class="analytics-item">
-                <span class="analytics-label">Days Over Budget</span>
-                <span id="daysOverBudget" class="analytics-value"></span>
-              </div>
-              <div class="analytics-item">
-                <span class="analytics-label">Budget Spent</span>
-                <span id="tripProgress" class="analytics-value"></span>
-              </div>
-              <div class="analytics-item">
-                <span class="analytics-label">Days Remaining</span>
-                <span id="daysRemaining" class="analytics-value"></span>
-              </div>
-              <div class="analytics-item">
-                <span class="analytics-label">Biggest Spend Day</span>
-                <span id="biggestSpendDay" class="analytics-value"></span>
-              </div>
-              <div class="analytics-item">
-                <span class="analytics-label">Smallest Spend Day</span>
-                <span id="smallestSpendDay" class="analytics-value"></span>
-              </div>
-              <div class="analytics-item full-span">
-                <span class="analytics-label">Spend by Category</span>
-                <div id="categoryBreakdown" class="category-breakdown"></div>
-              </div>
+              <div class="budget-summary" id="budgetSummary"></div>
+              <div class="expense-list" id="expenseList"></div>
             </div>
           </div>
         </div>
       </section>
 
-      <footer class="footer">
-        <div id="syncStatus" class="sync-status">Not synced</div>
-      </footer>
+      <section class="view" data-view="itinerary">
+        <div class="itinerary-layout">
+          <div class="itinerary-list" id="itineraryList"></div>
+          <div class="itinerary-detail" id="itineraryDetail">
+            <div class="empty-state">
+              <h3>Select a destination</h3>
+              <p>Pick anywhere from the left to drill into its day-by-day blueprint.</p>
+              <button class="ghost" id="emptyStateAdd" type="button">Create destination</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" data-view="map">
+        <div class="panel full">
+          <div class="panel-header">
+            <div>
+              <h2>Immersive route map</h2>
+              <p class="panel-sub">Destinations are numbered in travel order. Tap a marker to open the itinerary.</p>
+            </div>
+            <div class="map-actions">
+              <button id="centerMap" class="ghost" type="button">Center map</button>
+              <button id="toggleHeat" class="ghost" type="button">Toggle heat</button>
+            </div>
+          </div>
+          <div id="mapContainer" class="map-container"></div>
+        </div>
+      </section>
     </main>
   </div>
 
-  <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.42.5/dist/umd/supabase.min.js"></script>
-  <div id="syncModal" class="sync-modal hidden" aria-hidden="true">
-    <div class="sync-modal__overlay" data-close-sync></div>
-    <div class="sync-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="syncModalTitle">
-      <button class="sync-modal__close" id="closeSync" aria-label="Close sync dialog">×</button>
-      <h3 id="syncModalTitle">Share &amp; Sync</h3>
-      <p class="sync-modal__intro">
-        Create a share code to sync your travel budget across devices, or enter an existing code below.
-      </p>
-
-      <div class="sync-modal__section">
-        <button id="createShare" class="primary-btn">Generate Share Code</button>
-        <div id="shareCodeContainer" class="share-code hidden">
-          <span id="shareCode"></span>
-          <button id="copyShareCode" class="icon-button" aria-label="Copy share code">📋</button>
-        </div>
+  <template id="dayTemplate">
+    <div class="day-card">
+      <div class="day-header">
+        <h4 class="day-title"></h4>
+        <button class="ghost small" data-action="delete-day" type="button">Remove</button>
       </div>
-
-      <div class="sync-modal__section">
-        <form id="loadShareForm" class="share-form">
-          <label for="shareIdInput">Have a code?</label>
-          <div class="share-form__row">
-            <input id="shareIdInput" type="text" placeholder="Paste share code" autocomplete="off" />
-            <button type="submit" class="primary-btn ghost">Load</button>
-          </div>
-        </form>
-      </div>
-
-      <div class="sync-modal__section">
-        <button id="disconnectShare" class="link-btn">Stop syncing this device</button>
-      </div>
-
-      <div id="syncFeedback" class="sync-feedback"></div>
+      <div class="day-date"></div>
+      <p class="day-notes"></p>
     </div>
-  </div>
+  </template>
 
-  <div id="dataModal" class="sync-modal hidden" aria-hidden="true">
-    <div class="sync-modal__overlay" data-close-data></div>
-    <div class="sync-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="dataModalTitle">
-      <button class="sync-modal__close" id="closeData" aria-label="Close data dialog">×</button>
-      <h3 id="dataModalTitle">Data Management</h3>
-      <p class="sync-modal__intro">
-        Import or export your travel budget data as JSON files.
-      </p>
-
-      <div class="sync-modal__section">
-        <button id="importTravelButton" class="primary-btn">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="margin-right: 8px;">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-            <polyline points="17 8 12 3 7 8"></polyline>
-            <line x1="12" y1="3" x2="12" y2="15"></line>
-          </svg>
-          Import Data
-        </button>
-        <p class="helper-text">Load travel data from a JSON file</p>
-      </div>
-
-      <div class="sync-modal__section">
-        <button id="exportTravel" class="primary-btn ghost">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="margin-right: 8px;">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-            <polyline points="7 10 12 15 17 10"></polyline>
-            <line x1="12" y1="15" x2="12" y2="3"></line>
-          </svg>
-          Export Data
-        </button>
-        <p class="helper-text">Download all travel data as JSON</p>
-      </div>
-
-      <div id="dataFeedback" class="sync-feedback"></div>
-    </div>
-  </div>
-
-  <script defer src="travel.js"></script>
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-vS3cP53uN5mt0tN74YxPvste19h9Up7s+M41JCsAo8E="
+    crossorigin=""
+  ></script>
+  <script src="travel.js" type="module"></script>
 </body>
 </html>
