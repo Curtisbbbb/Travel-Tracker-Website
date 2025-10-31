@@ -453,7 +453,7 @@ function setupMapInteractions() {
     if (searchDebounceTimer) {
       clearTimeout(searchDebounceTimer);
     }
-    if (query.length < 3) {
+    if (query.length < 2) {
       clearMapSearchResults();
       renderMapSearchStatus('Keep typing to see matching destinations.');
       return;
@@ -494,9 +494,7 @@ async function handleMapSearchSubmit(query, options = {}) {
     return;
   }
 
-  if (!skipStatusReset) {
-    renderMapSearchStatus('Searching…');
-  }
+  renderMapSearchStatus('Searching…');
 
   try {
     const results = await searchPlaces(query);
@@ -528,7 +526,6 @@ function renderMapSearchStatus(message, variant = 'info') {
 async function handleSearchResultSelect(index) {
   const result = mapSearchResultsCache[index];
   if (!result) return;
-  removeSearchPreview();
   await addDestinationFromResult(result);
 }
 
@@ -585,11 +582,12 @@ function highlightSearchPreview(result) {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
   removeSearchPreview();
+  const previewOrder = getNextRouteOrder();
   const icon = L.divIcon({
     className: 'map-marker map-marker--preview',
-    html: '<span>✦</span>',
-    iconSize: [36, 36],
-    iconAnchor: [18, 18],
+    html: `<span>${previewOrder}</span>`,
+    iconSize: [40, 40],
+    iconAnchor: [20, 20],
   });
 
   searchPreviewMarker = L.marker([lat, lng], { icon, interactive: false }).addTo(mapInstance);
