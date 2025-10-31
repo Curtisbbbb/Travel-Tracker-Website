@@ -112,6 +112,10 @@ let routeLine = null;
 let heatLayer = null;
 let heatActive = false;
 let mapSearchResultsCache = [];
+let mapClickInFlight = false;
+let mapStatusPopup = null;
+let satelliteLayer = null;
+let streetLayer = null;
 
 const currencyFormatter = new Intl.NumberFormat('en-GB', {
   style: 'currency',
@@ -516,6 +520,105 @@ async function searchPlaces(query) {
   return response.json();
 }
 
+async function reverseGeocode(lat, lng) {
+  const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=14&addressdetails=1`;
+  const response = await fetch(url, {
+    headers: {
+      'Accept-Language': 'en-US,en;q=0.9',
+    },
+  });
+  if (!response.ok) {
+    throw new Error('Reverse geocoding failed');
+  }
+  const data = await response.json();
+  if (!data || data.error) {
+    throw new Error('Location not found');
+  }
+  return data;
+}
+
+function deriveAddressLabel(data) {
+  if (!data) return 'Dropped Pin';
+  if (data.name) return data.name;
+  const address = data.address || {};
+  const primaryKeys = ['city', 'town', 'village', 'hamlet', 'locality', 'suburb', 'neighbourhood'];
+  const primary = primaryKeys.map((key) => address[key]).find(Boolean);
+  const secondary = address.county || address.state || address.region;
+  const country = address.country;
+  const parts = [primary, secondary, country].filter(Boolean);
+  if (parts.length) {
+    return parts.join(', ');
+  }
+  if (address.road && country) {
+    return `${address.road}, ${country}`;
+  }
+  return 'Dropped Pin';
+}
+
+function openMapStatusPopup(lat, lng, content) {
+  if (!mapInstance) return null;
+  closeMapStatusPopup();
+  mapStatusPopup = L.popup({
+    closeButton: false,
+    autoClose: false,
+    closeOnClick: false,
+    className: 'map-quick-popup',
+  })
+    .setLatLng([lat, lng])
+    .setContent(content)
+    .openOn(mapInstance);
+  return mapStatusPopup;
+}
+
+function closeMapStatusPopup() {
+  if (mapStatusPopup && mapInstance) {
+    mapInstance.closePopup(mapStatusPopup);
+  }
+  mapStatusPopup = null;
+}
+
+async function handleMapClick(event) {
+  try {
+    ensureAuthenticated();
+  } catch (error) {
+    console.warn('Sign in required to drop pins', error);
+    return;
+  }
+  if (mapClickInFlight) return;
+  mapClickInFlight = true;
+  const { lat, lng } = event.latlng;
+  let statusPopup = openMapStatusPopup(lat, lng, '<strong>Pinning…</strong><br />Fetching location details.');
+
+  try {
+    const reverse = await reverseGeocode(lat, lng);
+    const label = deriveAddressLabel(reverse);
+    const normalized = {
+      lat: String(lat),
+      lon: String(lng),
+      display_name: reverse.display_name || label,
+      address: reverse.address || {},
+      name: reverse.name || label,
+    };
+    closeMapStatusPopup();
+    await addDestinationFromResult(normalized);
+  } catch (error) {
+    console.error('Map click add failed', error);
+    statusPopup = statusPopup || openMapStatusPopup(lat, lng, '');
+    if (statusPopup) {
+      statusPopup.setContent('<strong>Could not pinpoint that spot.</strong><br />Try the search box instead.');
+      setTimeout(() => {
+        if (mapStatusPopup === statusPopup) {
+          closeMapStatusPopup();
+        } else {
+          mapInstance?.closePopup(statusPopup);
+        }
+      }, 2600);
+    }
+  } finally {
+    mapClickInFlight = false;
+  }
+}
+
 async function addDestinationFromResult(result) {
   try {
     ensureAuthenticated();
@@ -583,6 +686,7 @@ async function addDestinationFromResult(result) {
     renderAll();
     renderRouteStops();
     focusMapOnDestination(getDestinationById(selectedDestinationId));
+    switchView('itinerary');
   } catch (error) {
     console.error('Failed to add destination', error);
     renderMapSearchResults([], { error: error.message || 'Unable to add that stop right now.' });
@@ -1188,7 +1292,14 @@ function renderItineraryDetail(destination) {
 }
 
 function renderMap() {
-  if (!mapInstance) return;
+  if (!mapInstance) {
+    // If map instance doesn't exist, initialize it first
+    initializeMap();
+    // Wait a bit for initialization and then render
+    setTimeout(() => renderMap(), 200);
+    return;
+  }
+  
   const destinations = getDestinations().filter((dest) => dest.coordinates);
   mapMarkers.forEach((marker) => marker.remove());
   mapMarkers = [];
@@ -1447,10 +1558,17 @@ function switchView(view, options = {}) {
   }
 
   if (view === 'map') {
+    // Give the DOM time to render the view change
     setTimeout(() => {
-      mapInstance?.invalidateSize();
-      renderMap();
-    }, 200);
+      if (!mapInstance) {
+        console.log('Initializing map for first time');
+        initializeMap();
+      } else {
+        console.log('Map exists, invalidating size and rendering');
+        mapInstance.invalidateSize();
+        renderMap();
+      }
+    }, 50);
   }
 }
 
@@ -1476,18 +1594,89 @@ function updateLocationHash(view) {
 }
 
 function initializeMap() {
+  // Clean up existing map instance
+  if (mapInstance) {
+    mapInstance.remove();
+    mapInstance = null;
+  }
+  if (!elements.mapContainer) return;
+  
+  // Ensure the map container is visible and has dimensions
+  const containerStyle = window.getComputedStyle(elements.mapContainer);
+  if (containerStyle.display === 'none' || containerStyle.width === '0px' || containerStyle.height === '0px') {
+    console.warn('Map container not ready, retrying...');
+    setTimeout(() => initializeMap(), 200);
+    return;
+  }
+  
+  // Reset all map-related variables
+  mapMarkers = [];
+  routeLine = null;
+  heatLayer = null;
+  heatActive = false;
+
+  // Create map instance
   mapInstance = L.map(elements.mapContainer, {
     center: [20, 0],
     zoom: 2,
     zoomControl: false,
+    preferCanvas: true,
   });
 
-  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-    attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
-    maxZoom: 18,
-  }).addTo(mapInstance);
+  // Use OpenStreetMap as the primary layer (more reliable)
+  streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    maxZoom: 19,
+    minZoom: 1,
+    errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+  });
 
+  // Add the street layer immediately
+  streetLayer.addTo(mapInstance);
+
+  // Create satellite layer as optional
+  satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    attribution: '&copy; <a href="https://www.esri.com/">Esri</a>, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+    maxZoom: 18,
+    minZoom: 1,
+    errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+  });
+
+  // Add layer control
+  L.control.layers(
+    {
+      'Street Map': streetLayer,
+      'Satellite': satelliteLayer,
+    },
+    {},
+    {
+      position: 'bottomleft',
+      collapsed: true,
+    }
+  ).addTo(mapInstance);
+
+  // Add zoom control
   L.control.zoom({ position: 'bottomright' }).addTo(mapInstance);
+  
+  // Add click handler
+  mapInstance.on('click', handleMapClick);
+  
+  // Ensure proper sizing after map is ready
+  mapInstance.whenReady(() => {
+    setTimeout(() => {
+      if (mapInstance) {
+        mapInstance.invalidateSize();
+        console.log('Map initialized and sized');
+      }
+    }, 100);
+  });
+  
+  // Additional size invalidation after a delay
+  setTimeout(() => {
+    if (mapInstance) {
+      mapInstance.invalidateSize();
+    }
+  }, 500);
 }
 
 function centerMap() {
