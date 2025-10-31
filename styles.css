@@ -894,6 +894,16 @@ button.small {
   color: var(--color-muted);
 }
 
+.route-stop.is-active {
+  border-color: rgba(94, 110, 200, 0.6);
+  box-shadow: var(--shadow-sm);
+  background: rgba(100, 116, 255, 0.08);
+}
+
+.route-stop.is-active .route-stop__order {
+  background: linear-gradient(135deg, var(--color-accent-bright), var(--color-accent));
+}
+
 .route-stop:hover,
 .route-stop:focus-visible {
   transform: translateY(-1px);

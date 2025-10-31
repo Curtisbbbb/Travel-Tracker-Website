@@ -474,14 +474,29 @@ async function loadDestinationsFromSupabase(preserveSlug = currentCountry) {
     const existingState = { ...state };
 
     data.forEach((dest) => {
+      const countryName = dest.coordinates?.country?.name || dest.location;
       let slug = slugify(dest.location);
       if (nextCountries[slug]) {
         slug = `${slug}-${String(dest.id).slice(0, 6)}`;
       }
       slugsFromSupabase.add(slug);
       destinationCache.set(slug, dest);
-      nextCountries[slug] = buildCountryConfigFromDestination(slug, dest, existingCountries[slug]);
-      nextState[slug] = buildCountryStateFromDestination(slug, dest, existingState[slug]);
+      const previousConfig = nextCountries[slug] || {};
+      const fallbackConfig = existingCountries[slug] || {};
+      const previousStateEntry = nextState[slug] || { budget: 0, durationDays: 0, expenses: [] };
+      nextCountries[slug] = buildCountryConfigFromDestination(slug, dest, previousConfig, countryName, fallbackConfig.flag);
+      nextState[slug] = buildCountryStateFromDestination(slug, dest, previousStateEntry);
+    });
+
+    slugsFromSupabase.forEach((slug) => {
+      const existingEntry = existingState[slug];
+      if (!existingEntry) return;
+      const localOnlyExpenses = Array.isArray(existingEntry.expenses)
+        ? existingEntry.expenses.filter((expense) => !expense.id)
+        : [];
+      if (localOnlyExpenses.length && nextState[slug]) {
+        nextState[slug].expenses = mergeExpenses(nextState[slug].expenses, localOnlyExpenses);
+      }
     });
 
     Object.entries(existingCountries).forEach(([slug, config]) => {
@@ -618,36 +633,80 @@ async function deleteDestinationFromSupabase(slug) {
   }
 }
 
-function buildCountryConfigFromDestination(slug, dest, previousConfig = {}) {
+function buildCountryConfigFromDestination(slug, dest, previousConfig = {}, countryName, fallbackFlag) {
   const preset = COUNTRY_PRESETS[slug] || {};
   const currencyMeta = dest?.coordinates?.currency || {};
   const currencyCode = (currencyMeta.code || previousConfig.currency || preset.currency || 'GBP').toUpperCase();
   const currencySymbol = currencyMeta.symbol || previousConfig.symbol || preset.symbol || '£';
   const currencyRate = Number(currencyMeta.rate) || previousConfig.rate || preset.rate || 1;
+  const resolvedName = countryName || previousConfig.name || dest.location;
+  const resolvedFlag = previousConfig.flag || fallbackFlag || preset.flag || COUNTRY_FLAG_DEFAULT;
+  const accumulatedDuration = (Number(previousConfig.duration) || 0) + (Number(dest.nights) || 0);
   return {
-    name: dest.location,
-    duration: dest.nights || previousConfig.duration || preset.duration || 0,
+    name: resolvedName,
+    duration: accumulatedDuration,
     currency: currencyCode,
     symbol: currencySymbol,
     rate: currencyRate,
-    flag: previousConfig.flag || preset.flag || COUNTRY_FLAG_DEFAULT,
+    flag: resolvedFlag,
     destinationId: dest.id,
   };
 }
 
 function buildCountryStateFromDestination(slug, dest, previousState = {}) {
   const preset = COUNTRY_PRESETS[slug] || {};
+  const baseBudget = Number(previousState.budget) || 0;
+  const baseDuration = Number(previousState.durationDays) || 0;
+  const existingExpenses = Array.isArray(previousState.expenses) ? previousState.expenses : [];
+  const newExpenses = Array.isArray(dest.destination_expenses)
+    ? dest.destination_expenses.map((expense) => ({
+        id: expense.id,
+        amount: Number(expense.amount) || 0,
+        description: expense.notes || '',
+        date: expense.date,
+        category: expense.category || 'other',
+        destination: dest.location,
+      }))
+    : [];
+  const mergedExpenses = mergeExpenses(existingExpenses, newExpenses);
+  const totalDuration = baseDuration + (Number(dest.nights) || 0);
   return {
-    budget: Number(dest.budget) || previousState.budget || 0,
-    durationDays: dest.nights || previousState.durationDays || preset.duration || 0,
-    expenses: (dest.destination_expenses || []).map((expense) => ({
-      id: expense.id,
-      amount: Number(expense.amount) || 0,
-      description: expense.notes || '',
-      date: expense.date,
-      category: expense.category || 'other',
-    })),
+    budget: baseBudget + (Number(dest.budget) || 0),
+    durationDays: totalDuration || preset.duration || 0,
+    expenses: mergedExpenses,
   };
+}
+
+function expenseKey(expense) {
+  if (!expense) return 'expense:unknown';
+  if (expense.id) return `id:${expense.id}`;
+  const amount = Number(expense.amount) || 0;
+  const parts = [
+    expense.destination || '',
+    expense.date || '',
+    expense.category || '',
+    amount.toFixed(2),
+    expense.description || '',
+  ];
+  return parts.join('|');
+}
+
+function mergeExpenses(primary = [], secondary = []) {
+  const merged = new Map();
+  const order = [];
+
+  const append = (expense) => {
+    const key = expenseKey(expense);
+    if (!merged.has(key)) {
+      order.push(key);
+    }
+    merged.set(key, expense);
+  };
+
+  primary.forEach(append);
+  secondary.forEach(append);
+
+  return order.map((key) => merged.get(key));
 }
 
 function mergeCoordinatesCurrency(existing, config) {

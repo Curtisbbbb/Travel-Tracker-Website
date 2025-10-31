@@ -443,6 +443,7 @@ function setupMapInteractions() {
     switchView('itinerary');
     renderItinerary();
     renderBudgetPanel();
+    renderRouteStops();
   });
 }
 
@@ -1245,6 +1246,7 @@ function renderMap() {
       switchView('itinerary');
       renderItinerary();
       renderBudgetPanel();
+      renderRouteStops();
     });
 
     mapMarkers.push(marker);
@@ -1273,12 +1275,26 @@ function renderRouteStops() {
     return;
   }
 
-  elements.routeStopsList.innerHTML = destinations
+  const fallbackOrder = new Map(destinations.map((dest, idx) => [dest.id, idx + 1]));
+
+  const sorted = destinations
+    .slice()
+    .sort((a, b) => {
+      const orderA = Number.isFinite(a.routeOrder) ? a.routeOrder : fallbackOrder.get(a.id) || 0;
+      const orderB = Number.isFinite(b.routeOrder) ? b.routeOrder : fallbackOrder.get(b.id) || 0;
+      if (orderA !== orderB) return orderA - orderB;
+      return new Date(a.startDate) - new Date(b.startDate);
+    });
+
+  const activeId = selectedDestinationId;
+
+  elements.routeStopsList.innerHTML = sorted
     .map((dest, index) => {
       const order = Number.isFinite(dest.routeOrder) ? dest.routeOrder : index + 1;
       const country = dest.coordinates?.country?.name ? ` • ${escapeHtml(dest.coordinates.country.name)}` : '';
+      const activeClass = dest.id === activeId ? ' is-active' : '';
       return `
-        <button type="button" class="route-stop" data-stop-id="${dest.id}" title="Open ${escapeHtml(dest.location)}">
+        <button type="button" class="route-stop${activeClass}" data-stop-id="${dest.id}" title="Open ${escapeHtml(dest.location)}">
           <span class="route-stop__order">${order}</span>
           <span class="route-stop__label">
             <span class="route-stop__name">${escapeHtml(dest.location)}</span>
