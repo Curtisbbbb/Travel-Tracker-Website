@@ -11,8 +11,8 @@
   <link
     rel="stylesheet"
     href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    integrity="sha256-QV8tZKUE1pU4ShvD5LR/1l0wLD/NFZ8Jz7gPcqR8wY8="
-    crossorigin=""
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin="anonymous"
   />
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -173,18 +173,30 @@
             </div>
             <div class="map-actions">
               <button id="centerMap" class="ghost" type="button">Center map</button>
-              <button id="toggleHeat" class="ghost" type="button">Toggle heat</button>
+              <button id="toggleBasemap" class="ghost" type="button" aria-pressed="false">Satellite view</button>
+              <button id="toggleHeat" class="ghost" type="button" aria-pressed="false">Toggle heat</button>
             </div>
           </div>
-          <div class="map-tools">
-            <div class="map-search">
-              <input id="mapSearchInput" type="search" placeholder="Search a city, landmark, or address…" autocomplete="off" />
-              <button id="mapSearchButton" class="primary" type="button">Add stop</button>
-            </div>
-            <div id="mapSearchResults" class="map-search-results" role="listbox"></div>
-            <div id="routeStopsList" class="route-stops"></div>
+          <div class="map-layout">
+            <aside class="map-tools">
+              <div class="map-tools__section">
+                <h3>Search &amp; add</h3>
+                <p class="map-tools__hint">Find a city, landmark, or address to drop the next pin.</p>
+                <div class="map-search">
+                  <input id="mapSearchInput" type="search" placeholder="Search a destination…" autocomplete="off" />
+                  <button id="mapSearchButton" class="primary" type="button">Add stop</button>
+                </div>
+                <div id="mapSearchResults" class="map-search-results" role="listbox" aria-live="polite"></div>
+              </div>
+              <div class="map-tools__section">
+                <div class="map-tools__header">
+                  <h3>Route stops</h3>
+                </div>
+                <div id="routeStopsList" class="route-stops" aria-live="polite"></div>
+              </div>
+            </aside>
+            <div id="mapContainer" class="map-container"></div>
           </div>
-          <div id="mapContainer" class="map-container" style="width: 100%; height: 500px; background: lime; border: 5px solid blue;"></div>
         </div>
       </section>
 
@@ -204,9 +216,10 @@
 
   <script
     src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-    integrity="sha256-vS3cP53uN5mt0tN74YxPvste19h9Up7s+M41JCsAo8E="
-    crossorigin=""
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin="anonymous"
   ></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
     window.SUPABASE_URL = 'https://hjeekvjgqbbefazylmtu.supabase.co';
     window.SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZWVrdmpncWJiZWZhenlsbXR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE4NTMzMjEsImV4cCI6MjA3NzQyOTMyMX0.gcx9FMI8qsXVcZ7G74D9qf_w0M1l6jYCRpsjw9kiqCw';

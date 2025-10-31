@@ -1,7 +1,18 @@
-console.log('Travel.js loading...');
+const SUPABASE_URL = window.SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || '';
+const NOMINATIM_HEADERS = {
+  'Accept-Language': 'en-US,en;q=0.9',
+  'User-Agent': 'Travel Atlas Prototype (contact: curtisnbennett@gmail.com)',
+};
 
-// For now, disable Supabase to test map functionality
-const supabase = null;
+// Initialize Supabase using the global script
+const supabase = window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY 
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+      },
+    }) : null;
 
 let elements = {};
 
@@ -59,8 +70,10 @@ let heatActive = false;
 let mapSearchResultsCache = [];
 let mapClickInFlight = false;
 let mapStatusPopup = null;
-let satelliteLayer = null;
-let streetLayer = null;
+let basemapLayers = { street: null, satellite: null };
+let activeBasemap = 'satellite';
+let searchPreviewMarker = null;
+let searchDebounceTimer = null;
 
 const currencyFormatter = new Intl.NumberFormat('en-GB', {
   style: 'currency',
@@ -70,9 +83,6 @@ const currencyFormatter = new Intl.NumberFormat('en-GB', {
 });
 
 document.addEventListener('DOMContentLoaded', () => {
-  console.log('DOM loaded, getting elements...');
-  
-  // Initialize elements after DOM is ready
   elements = {
     authScreen: document.getElementById('authScreen'),
     appShell: document.getElementById('appShell'),
@@ -121,62 +131,22 @@ document.addEventListener('DOMContentLoaded', () => {
     userName: document.getElementById('userName'),
     userEmail: document.getElementById('userEmail'),
     userInitials: document.getElementById('userInitials'),
+    toggleBasemap: document.getElementById('toggleBasemap'),
   };
 
-  console.log('Elements found:', {
-    mapContainer: !!elements.mapContainer,
-    authScreen: !!elements.authScreen,
-    appShell: !!elements.appShell,
-    leafletAvailable: typeof L !== 'undefined'
-  });
+  if (elements.mapSearchResults) {
+    renderMapSearchStatus('Search for your next destination to add it to the route.');
+  }
   
-  console.log('checking Supabase...');
   if (!supabase) {
-    console.log('No Supabase, skipping auth and going straight to map test...');
-    // Skip authentication and go straight to testing the map
-    testMapDirectly();
+    renderConfigurationWarning();
     return;
   }
 
   initialize();
 });
 
-function testMapDirectly() {
-  console.log('Testing map directly...');
-  
-  // Hide auth screen and show app
-  if (elements.authScreen) {
-    elements.authScreen.classList.add('hidden');
-  }
-  if (elements.appShell) {
-    elements.appShell.classList.remove('hidden');
-  }
-  
-  // Set some fake user data to prevent errors
-  if (elements.userName) elements.userName.textContent = 'Test User';
-  if (elements.userEmail) elements.userEmail.textContent = 'test@example.com';
-  if (elements.userInitials) elements.userInitials.textContent = 'TU';
-  
-  // Ensure map view is active
-  console.log('Making sure map view is active...');
-  document.querySelectorAll('.view').forEach((section) => {
-    section.classList.remove('is-active');
-  });
-  const mapView = document.querySelector('[data-view="map"]');
-  if (mapView) {
-    mapView.classList.add('is-active');
-    console.log('Map view activated');
-  } else {
-    console.error('Could not find map view element');
-  }
-  
-  // Wait a bit for CSS transitions, then initialize map
-  setTimeout(() => {
-    console.log('About to initialize map...');
-    console.log('Map container visible?', elements.mapContainer && window.getComputedStyle(elements.mapContainer).display !== 'none');
-    initializeMap();
-  }, 200);
-}
+
 
 function initialize() {
   setupAuthTabs();
@@ -457,29 +427,47 @@ function setupActions() {
   });
 
   elements.centerMap.addEventListener('click', () => centerMap());
+  elements.toggleBasemap?.addEventListener('click', () => toggleBasemap());
   elements.toggleHeat.addEventListener('click', () => toggleHeat());
 }
 
 function setupMapInteractions() {
   elements.mapSearchButton?.addEventListener('click', () => {
     if (!elements.mapSearchInput) return;
-    handleMapSearchSubmit(elements.mapSearchInput.value.trim());
+    const query = elements.mapSearchInput.value.trim();
+    if (!query && mapSearchResultsCache.length) {
+      void handleSearchResultSelect(0);
+      return;
+    }
+    void handleMapSearchSubmit(query, { autoAdd: true });
   });
 
   elements.mapSearchInput?.addEventListener('keydown', (event) => {
     if (event.key !== 'Enter') return;
     event.preventDefault();
-    handleMapSearchSubmit(event.target.value.trim());
+    void handleMapSearchSubmit(event.target.value.trim(), { autoAdd: false });
+  });
+
+  elements.mapSearchInput?.addEventListener('input', (event) => {
+    const query = event.target.value.trim();
+    if (searchDebounceTimer) {
+      clearTimeout(searchDebounceTimer);
+    }
+    if (query.length < 3) {
+      clearMapSearchResults();
+      renderMapSearchStatus('Keep typing to see matching destinations.');
+      return;
+    }
+    searchDebounceTimer = setTimeout(() => {
+      void handleMapSearchSubmit(query, { autoAdd: false, limit: 5, skipStatusReset: true });
+    }, 250);
   });
 
   elements.mapSearchResults?.addEventListener('click', (event) => {
     const option = event.target.closest('[data-search-index]');
     if (!option) return;
     const index = Number(option.dataset.searchIndex);
-    const result = mapSearchResultsCache[index];
-    if (result) {
-      void addDestinationFromResult(result);
-    }
+    void handleSearchResultSelect(index);
   });
 
   elements.routeStopsList?.addEventListener('click', (event) => {
@@ -496,43 +484,76 @@ function setupMapInteractions() {
   });
 }
 
-async function handleMapSearchSubmit(query) {
+async function handleMapSearchSubmit(query, options = {}) {
+  const { autoAdd = false, limit = 5, skipStatusReset = false } = options;
   if (!query) {
     clearMapSearchResults();
+    if (!skipStatusReset) {
+      renderMapSearchStatus('Start typing to find your next destination.');
+    }
     return;
   }
 
-  renderMapSearchResults(null, { loading: true });
+  if (!skipStatusReset) {
+    renderMapSearchStatus('Searching…');
+  }
 
   try {
     const results = await searchPlaces(query);
-    renderMapSearchResults(results.slice(0, 5));
+    const topResults = results.slice(0, limit);
+    renderMapSearchResults(topResults, { skipPreview: autoAdd });
+
+    const primaryResult = mapSearchResultsCache[0];
+    if (autoAdd && primaryResult) {
+      await addDestinationFromResult(primaryResult);
+    }
   } catch (error) {
     console.error('Search failed', error);
-    renderMapSearchResults([], { error: 'Search failed. Try refining your query.' });
+    if (!skipStatusReset) {
+      renderMapSearchStatus('Search failed. Try refining your query.', 'error');
+    }
   }
+}
+
+function renderMapSearchStatus(message, variant = 'info') {
+  if (!elements.mapSearchResults) return;
+  const className = variant === 'success'
+    ? 'map-search-results__status is-success'
+    : variant === 'error'
+      ? 'map-search-results__status is-error'
+      : 'map-search-results__status';
+  elements.mapSearchResults.innerHTML = `<div class="${className}">${escapeHtml(message)}</div>`;
+}
+
+async function handleSearchResultSelect(index) {
+  const result = mapSearchResultsCache[index];
+  if (!result) return;
+  removeSearchPreview();
+  await addDestinationFromResult(result);
 }
 
 function renderMapSearchResults(results, options = {}) {
   if (!elements.mapSearchResults) return;
-  mapSearchResultsCache = Array.isArray(results) ? results : [];
+  mapSearchResultsCache = Array.isArray(results)
+    ? results.map((item) => ({ ...item, source: item.source || 'atlas-search' }))
+    : [];
 
   if (options.loading) {
-    elements.mapSearchResults.innerHTML = '<div class="map-search-results__status">Searching…</div>';
+    renderMapSearchStatus('Searching…');
     return;
   }
 
   if (options.error) {
-    elements.mapSearchResults.innerHTML = `<div class="map-search-results__status">${escapeHtml(options.error)}</div>`;
+    renderMapSearchStatus(options.error, 'error');
     return;
   }
 
   if (!results || !results.length) {
-    elements.mapSearchResults.innerHTML = '<div class="map-search-results__status">No places found. Try another search.</div>';
+    renderMapSearchStatus('No places found. Try another search.');
     return;
   }
 
-  elements.mapSearchResults.innerHTML = results
+  elements.mapSearchResults.innerHTML = mapSearchResultsCache
     .map((result, index) => {
       const primary = escapeHtml(result.display_name?.split(',')[0] || result.name || result.display_name || 'Unknown place');
       const secondary = escapeHtml(result.display_name || '');
@@ -544,20 +565,48 @@ function renderMapSearchResults(results, options = {}) {
       `;
     })
     .join('');
+
+  if (!options.skipPreview) {
+    highlightSearchPreview(mapSearchResultsCache[0]);
+  }
 }
 
 function clearMapSearchResults() {
   if (!elements.mapSearchResults) return;
+  removeSearchPreview();
   elements.mapSearchResults.innerHTML = '';
   mapSearchResultsCache = [];
+}
+
+function highlightSearchPreview(result) {
+  if (!mapInstance || !result) return;
+  const lat = Number(result.lat);
+  const lng = Number(result.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+  removeSearchPreview();
+  const icon = L.divIcon({
+    className: 'map-marker map-marker--preview',
+    html: '<span>✦</span>',
+    iconSize: [36, 36],
+    iconAnchor: [18, 18],
+  });
+
+  searchPreviewMarker = L.marker([lat, lng], { icon, interactive: false }).addTo(mapInstance);
+  mapInstance.flyTo([lat, lng], 7, { duration: 0.6 });
+}
+
+function removeSearchPreview() {
+  if (searchPreviewMarker) {
+    searchPreviewMarker.remove();
+    searchPreviewMarker = null;
+  }
 }
 
 async function searchPlaces(query) {
   const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=6&q=${encodeURIComponent(query)}`;
   const response = await fetch(url, {
-    headers: {
-      'Accept-Language': 'en-US,en;q=0.9',
-    },
+    headers: NOMINATIM_HEADERS,
   });
   if (!response.ok) {
     throw new Error('Search request failed');
@@ -568,9 +617,7 @@ async function searchPlaces(query) {
 async function reverseGeocode(lat, lng) {
   const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=14&addressdetails=1`;
   const response = await fetch(url, {
-    headers: {
-      'Accept-Language': 'en-US,en;q=0.9',
-    },
+    headers: NOMINATIM_HEADERS,
   });
   if (!response.ok) {
     throw new Error('Reverse geocoding failed');
@@ -600,9 +647,12 @@ function deriveAddressLabel(data) {
   return 'Dropped Pin';
 }
 
+// Helper function to get Leaflet from global scope
 function openMapStatusPopup(lat, lng, content) {
   if (!mapInstance) return null;
   closeMapStatusPopup();
+  if (typeof L === 'undefined') return null;
+  
   mapStatusPopup = L.popup({
     closeButton: false,
     autoClose: false,
@@ -643,6 +693,7 @@ async function handleMapClick(event) {
       display_name: reverse.display_name || label,
       address: reverse.address || {},
       name: reverse.name || label,
+      source: 'atlas',
     };
     closeMapStatusPopup();
     await addDestinationFromResult(normalized);
@@ -676,7 +727,7 @@ async function addDestinationFromResult(result) {
   const lat = Number(result.lat);
   const lng = Number(result.lon);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-    renderMapSearchResults([], { error: 'Could not determine coordinates for that place.' });
+    renderMapSearchStatus('Could not determine coordinates for that place.', 'error');
     return;
   }
 
@@ -687,12 +738,16 @@ async function addDestinationFromResult(result) {
   const startDate = todayIsoString();
   const nights = 3;
   const routeOrder = getNextRouteOrder();
+  const nowIso = new Date().toISOString();
+  const source = result.source || 'atlas';
 
   const coordinates = {
     lat,
     lng,
     country: { name: countryName, code: countryCode },
     route_order: routeOrder,
+    source,
+    added_at: nowIso,
   };
 
   const currencyDefaults = COUNTRY_DEFAULTS[countryCode] || {};
@@ -724,22 +779,23 @@ async function addDestinationFromResult(result) {
     if (error) throw error;
 
     selectedDestinationId = data.id;
+    removeSearchPreview();
     elements.mapSearchInput.value = '';
     clearMapSearchResults();
+    renderMapSearchStatus(`${placeName} added to your route.`, 'success');
 
     await loadDestinations();
     renderAll();
-    renderRouteStops();
     focusMapOnDestination(getDestinationById(selectedDestinationId));
-    switchView('itinerary');
+    switchView('map');
   } catch (error) {
     console.error('Failed to add destination', error);
-    renderMapSearchResults([], { error: error.message || 'Unable to add that stop right now.' });
+    renderMapSearchStatus(error.message || 'Unable to add that stop right now.', 'error');
   }
 }
 
 function getNextRouteOrder() {
-  const destinations = getDestinations();
+  const destinations = getDestinations().filter(isRouteStop);
   const maxOrder = destinations.reduce((acc, dest) => {
     const order = Number(dest.routeOrder);
     return Number.isFinite(order) ? Math.max(acc, order) : acc;
@@ -782,6 +838,8 @@ async function enterApp(user) {
 
   if (!mapInstance) {
     initializeMap();
+  } else {
+    mapInstance.invalidateSize();
   }
 
   renderAll();
@@ -795,6 +853,22 @@ function exitApp() {
   state.profile = null;
   state.destinations = [];
   selectedDestinationId = null;
+  mapMarkers = [];
+  routeLine = null;
+  heatLayer = null;
+  heatActive = false;
+  if (mapInstance) {
+    mapInstance.off();
+    mapInstance.remove();
+    mapInstance = null;
+  }
+  basemapLayers = { street: null, satellite: null };
+  activeBasemap = 'street';
+  updateBasemapToggle();
+  if (elements.toggleHeat) {
+    elements.toggleHeat.textContent = 'Toggle heat';
+    elements.toggleHeat.setAttribute('aria-pressed', 'false');
+  }
   elements.appShell.classList.add('hidden');
   elements.authScreen.classList.remove('hidden');
   clearForms();
@@ -898,6 +972,8 @@ function normalizeDestination(row) {
             }
           : null,
         route_order: Number.isFinite(routeOrder) ? routeOrder : undefined,
+        source: row.coordinates.source || null,
+        addedAt: row.coordinates.added_at || row.coordinates.addedAt || null,
       };
     }
   }
@@ -1345,7 +1421,7 @@ function renderMap() {
     return;
   }
   
-  const destinations = getDestinations().filter((dest) => dest.coordinates);
+  const destinations = getDestinations().filter(isRouteStop);
   mapMarkers.forEach((marker) => marker.remove());
   mapMarkers = [];
   if (routeLine) {
@@ -1381,7 +1457,6 @@ function renderMap() {
     }
 
     const order = Number.isFinite(dest.routeOrder) ? dest.routeOrder : index + 1;
-
     const marker = L.marker([lat, lng], {
       icon: L.divIcon({
         className: 'map-marker',
@@ -1425,9 +1500,9 @@ function renderMap() {
 
 function renderRouteStops() {
   if (!elements.routeStopsList) return;
-  const destinations = getDestinations();
+  const destinations = getDestinations().filter(isRouteStop);
   if (!destinations.length) {
-    elements.routeStopsList.innerHTML = '<div class="route-stops__empty">Add your first stop to begin plotting the journey.</div>';
+    elements.routeStopsList.innerHTML = '<div class="route-stops__empty">Drop a pin to start building your route.</div>';
     return;
   }
 
@@ -1606,10 +1681,8 @@ function switchView(view, options = {}) {
     // Give the DOM time to render the view change
     setTimeout(() => {
       if (!mapInstance) {
-        console.log('Initializing map for first time');
         initializeMap();
       } else {
-        console.log('Map exists, invalidating size and rendering');
         mapInstance.invalidateSize();
         renderMap();
       }
@@ -1639,104 +1712,61 @@ function updateLocationHash(view) {
 }
 
 function initializeMap() {
-  console.log('=== initializeMap() called ===');
-  console.log('mapContainer element:', elements.mapContainer);
-  console.log('Leaflet available:', typeof L !== 'undefined');
-  
-  // Check if Leaflet is available
-  if (typeof L === 'undefined') {
-    console.warn('Leaflet not loaded yet, retrying in 500ms...');
-    setTimeout(() => initializeMap(), 500);
-    return;
-  }
-  
-  if (!elements.mapContainer) {
-    console.error('No map container found!');
-    return;
-  }
-  
-  // Get container style info
-  const containerStyle = window.getComputedStyle(elements.mapContainer);
-  const dimensions = {
-    offsetWidth: elements.mapContainer.offsetWidth,
-    offsetHeight: elements.mapContainer.offsetHeight,
-    clientWidth: elements.mapContainer.clientWidth,
-    clientHeight: elements.mapContainer.clientHeight,
-    display: containerStyle.display,
-    visibility: containerStyle.visibility,
-    position: containerStyle.position,
-    width: containerStyle.width,
-    height: containerStyle.height
-  };
-  
-  console.log('Map container dimensions and style:', dimensions);
-  
-  // Check if container has proper dimensions
-  if (dimensions.offsetWidth === 0 || dimensions.offsetHeight === 0) {
-    console.warn('Map container has zero dimensions, retrying in 300ms...');
-    setTimeout(() => initializeMap(), 300);
-    return;
-  }
-  
-  // Clean up existing map instance
   if (mapInstance) {
-    console.log('Removing existing map instance');
-    try {
-      mapInstance.remove();
-    } catch (e) {
-      console.warn('Error removing map:', e);
-    }
-    mapInstance = null;
+    mapInstance.invalidateSize();
+    return;
   }
-  
-  try {
-    console.log('Creating simple Leaflet map...');
-    
-    // Create map instance with minimal options
-    mapInstance = L.map(elements.mapContainer, {
-      center: [51.505, -0.09],
-      zoom: 13
-    });
-    
-    console.log('Map instance created successfully:', mapInstance);
 
-    // Add simple OpenStreetMap tiles
-    const tiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors',
-      maxZoom: 19
-    });
-    
-    tiles.addTo(mapInstance);
-    console.log('Tiles added to map');
-    
-    // Add a test marker
-    const marker = L.marker([51.5, -0.09]).addTo(mapInstance)
-      .bindPopup('🗺️ Map is working! This is a test marker.')
-      .openPopup();
-    
-    console.log('Test marker added:', marker);
-    
-    // Ensure proper sizing
-    setTimeout(() => {
-      if (mapInstance) {
-        mapInstance.invalidateSize();
-        console.log('Map size invalidated - final dimensions:', {
-          width: elements.mapContainer.offsetWidth,
-          height: elements.mapContainer.offsetHeight
-        });
-      }
-    }, 100);
-    
-    console.log('=== Map initialization completed successfully ===');
-    
-  } catch (error) {
-    console.error('=== Error initializing map ===', error);
+  if (!elements.mapContainer) {
+    return;
   }
+
+  if (elements.appShell?.classList.contains('hidden')) {
+    setTimeout(initializeMap, 100);
+    return;
+  }
+
+  if (typeof L === 'undefined') {
+    setTimeout(initializeMap, 200);
+    return;
+  }
+
+  const { offsetWidth, offsetHeight } = elements.mapContainer;
+  if (!offsetWidth || !offsetHeight) {
+    setTimeout(initializeMap, 100);
+    return;
+  }
+
+  mapInstance = L.map(elements.mapContainer, {
+    center: [20, 0],
+    zoom: 2,
+    zoomControl: false,
+  });
+
+  basemapLayers = {
+    satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      attribution: 'Imagery © Esri & partners',
+      maxZoom: 18,
+    }),
+    street: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors',
+      maxZoom: 19,
+    }),
+  };
+
+  basemapLayers.satellite.addTo(mapInstance);
+  activeBasemap = 'satellite';
+  updateBasemapToggle();
+
+  L.control.zoom({ position: 'bottomright' }).addTo(mapInstance);
+  mapInstance.on('click', handleMapClick);
+  setTimeout(() => mapInstance?.invalidateSize(), 300);
+  renderMap();
 }
 
 function centerMap() {
   if (!mapInstance) return;
-  const destinations = getDestinations().filter((dest) => dest.coordinates);
+  const destinations = getDestinations().filter(isRouteStop);
   if (!destinations.length) {
     mapInstance.setView([20, 0], 2);
     return;
@@ -1745,10 +1775,36 @@ function centerMap() {
   mapInstance.fitBounds(bounds, { padding: [48, 48] });
 }
 
+function toggleBasemap() {
+  if (!mapInstance || !basemapLayers.street || !basemapLayers.satellite) return;
+  const next = activeBasemap === 'street' ? 'satellite' : 'street';
+  const currentLayer = basemapLayers[activeBasemap];
+  const nextLayer = basemapLayers[next];
+
+  if (currentLayer && mapInstance.hasLayer(currentLayer)) {
+    mapInstance.removeLayer(currentLayer);
+  }
+  if (nextLayer && !mapInstance.hasLayer(nextLayer)) {
+    nextLayer.addTo(mapInstance);
+  }
+
+  activeBasemap = next;
+  updateBasemapToggle();
+  mapInstance.invalidateSize();
+}
+
+function updateBasemapToggle() {
+  if (!elements.toggleBasemap) return;
+  const isSatellite = activeBasemap === 'satellite';
+  elements.toggleBasemap.textContent = isSatellite ? 'Street view' : 'Satellite view';
+  elements.toggleBasemap.setAttribute('aria-pressed', String(isSatellite));
+}
+
 function toggleHeat() {
   heatActive = !heatActive;
   updateHeatLayer();
   elements.toggleHeat.textContent = heatActive ? 'Hide heat' : 'Toggle heat';
+  elements.toggleHeat?.setAttribute('aria-pressed', String(heatActive));
 }
 
 function updateHeatLayer() {
@@ -1758,7 +1814,7 @@ function updateHeatLayer() {
     heatLayer = null;
   }
   if (!heatActive) return;
-  const destinations = getDestinations().filter((dest) => dest.coordinates);
+  const destinations = getDestinations().filter(isRouteStop);
   if (!destinations.length) return;
   heatLayer = L.layerGroup(
     destinations.map((dest) =>
@@ -1815,6 +1871,16 @@ function getDestinations() {
 
 function getDestinationById(id) {
   return state.destinations.find((dest) => dest.id === id) || null;
+}
+
+function isRouteStop(destination) {
+  if (!destination?.coordinates) return false;
+  const lat = Number(destination.coordinates.lat);
+  const lng = Number(destination.coordinates.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  const source = destination.coordinates.source;
+  if (source) return source === 'atlas' || source === 'atlas-search';
+  return Number.isFinite(destination.routeOrder);
 }
 
 function ensureAuthenticated() {
