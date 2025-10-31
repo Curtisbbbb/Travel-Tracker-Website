@@ -1,64 +1,9 @@
-import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+console.log('Travel.js loading...');
 
-const SUPABASE_URL = window.SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || '';
+// For now, disable Supabase to test map functionality
+const supabase = null;
 
-const supabase = SUPABASE_URL && SUPABASE_ANON_KEY ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-  },
-}) : null;
-
-const elements = {
-  authScreen: document.getElementById('authScreen'),
-  appShell: document.getElementById('appShell'),
-  loginForm: document.getElementById('loginForm'),
-  signupForm: document.getElementById('signupForm'),
-  loginFeedback: document.getElementById('loginFeedback'),
-  signupFeedback: document.getElementById('signupFeedback'),
-  loginEmail: document.getElementById('loginEmail'),
-  loginPassword: document.getElementById('loginPassword'),
-  signupName: document.getElementById('signupName'),
-  signupEmail: document.getElementById('signupEmail'),
-  signupPassword: document.getElementById('signupPassword'),
-  signupConfirm: document.getElementById('signupConfirm'),
-  authTabs: document.querySelectorAll('.auth-tab'),
-  viewTitle: document.getElementById('viewTitle'),
-  viewSubtitle: document.getElementById('viewSubtitle'),
-  primaryAction: document.getElementById('primaryAction'),
-  openQuickDestination: document.getElementById('openQuickDestination'),
-  logout: document.getElementById('logout'),
-  navLinks: document.querySelectorAll('.nav-link'),
-  dashboardNextDestination: document.getElementById('dashboardNextDestination'),
-  dashboardCountdown: document.getElementById('dashboardCountdown'),
-  dashboardTripCount: document.getElementById('dashboardTripCount'),
-  dashboardBudgetProgress: document.getElementById('dashboardBudgetProgress'),
-  dashboardBudgetBar: document.getElementById('dashboardBudgetBar'),
-  dashboardHighlights: document.getElementById('dashboardHighlights'),
-  upcomingDestinations: document.getElementById('upcomingDestinations'),
-  expenseForm: document.getElementById('expenseForm'),
-  expenseCategory: document.getElementById('expenseCategory'),
-  expenseAmount: document.getElementById('expenseAmount'),
-  expenseDate: document.getElementById('expenseDate'),
-  expenseNotes: document.getElementById('expenseNotes'),
-  expenseFeedback: document.getElementById('expenseFeedback'),
-  budgetSubtitle: document.getElementById('budgetSubtitle'),
-  budgetSummary: document.getElementById('budgetSummary'),
-  expenseList: document.getElementById('expenseList'),
-  itineraryList: document.getElementById('itineraryList'),
-  itineraryDetail: document.getElementById('itineraryDetail'),
-  mapContainer: document.getElementById('mapContainer'),
-  centerMap: document.getElementById('centerMap'),
-  toggleHeat: document.getElementById('toggleHeat'),
-  mapSearchInput: document.getElementById('mapSearchInput'),
-  mapSearchButton: document.getElementById('mapSearchButton'),
-  mapSearchResults: document.getElementById('mapSearchResults'),
-  routeStopsList: document.getElementById('routeStopsList'),
-  userName: document.getElementById('userName'),
-  userEmail: document.getElementById('userEmail'),
-  userInitials: document.getElementById('userInitials'),
-};
+let elements = {};
 
 const CATEGORY_LABELS = {
   stay: 'Stay',
@@ -125,13 +70,113 @@ const currencyFormatter = new Intl.NumberFormat('en-GB', {
 });
 
 document.addEventListener('DOMContentLoaded', () => {
+  console.log('DOM loaded, getting elements...');
+  
+  // Initialize elements after DOM is ready
+  elements = {
+    authScreen: document.getElementById('authScreen'),
+    appShell: document.getElementById('appShell'),
+    loginForm: document.getElementById('loginForm'),
+    signupForm: document.getElementById('signupForm'),
+    loginFeedback: document.getElementById('loginFeedback'),
+    signupFeedback: document.getElementById('signupFeedback'),
+    loginEmail: document.getElementById('loginEmail'),
+    loginPassword: document.getElementById('loginPassword'),
+    signupName: document.getElementById('signupName'),
+    signupEmail: document.getElementById('signupEmail'),
+    signupPassword: document.getElementById('signupPassword'),
+    signupConfirm: document.getElementById('signupConfirm'),
+    authTabs: document.querySelectorAll('.auth-tab'),
+    viewTitle: document.getElementById('viewTitle'),
+    viewSubtitle: document.getElementById('viewSubtitle'),
+    primaryAction: document.getElementById('primaryAction'),
+    openQuickDestination: document.getElementById('openQuickDestination'),
+    logout: document.getElementById('logout'),
+    navLinks: document.querySelectorAll('.nav-link'),
+    dashboardNextDestination: document.getElementById('dashboardNextDestination'),
+    dashboardCountdown: document.getElementById('dashboardCountdown'),
+    dashboardTripCount: document.getElementById('dashboardTripCount'),
+    dashboardBudgetProgress: document.getElementById('dashboardBudgetProgress'),
+    dashboardBudgetBar: document.getElementById('dashboardBudgetBar'),
+    dashboardHighlights: document.getElementById('dashboardHighlights'),
+    upcomingDestinations: document.getElementById('upcomingDestinations'),
+    expenseForm: document.getElementById('expenseForm'),
+    expenseCategory: document.getElementById('expenseCategory'),
+    expenseAmount: document.getElementById('expenseAmount'),
+    expenseDate: document.getElementById('expenseDate'),
+    expenseNotes: document.getElementById('expenseNotes'),
+    expenseFeedback: document.getElementById('expenseFeedback'),
+    budgetSubtitle: document.getElementById('budgetSubtitle'),
+    budgetSummary: document.getElementById('budgetSummary'),
+    expenseList: document.getElementById('expenseList'),
+    itineraryList: document.getElementById('itineraryList'),
+    itineraryDetail: document.getElementById('itineraryDetail'),
+    mapContainer: document.getElementById('mapContainer'),
+    centerMap: document.getElementById('centerMap'),
+    toggleHeat: document.getElementById('toggleHeat'),
+    mapSearchInput: document.getElementById('mapSearchInput'),
+    mapSearchButton: document.getElementById('mapSearchButton'),
+    mapSearchResults: document.getElementById('mapSearchResults'),
+    routeStopsList: document.getElementById('routeStopsList'),
+    userName: document.getElementById('userName'),
+    userEmail: document.getElementById('userEmail'),
+    userInitials: document.getElementById('userInitials'),
+  };
+
+  console.log('Elements found:', {
+    mapContainer: !!elements.mapContainer,
+    authScreen: !!elements.authScreen,
+    appShell: !!elements.appShell,
+    leafletAvailable: typeof L !== 'undefined'
+  });
+  
+  console.log('checking Supabase...');
   if (!supabase) {
-    renderConfigurationWarning();
+    console.log('No Supabase, skipping auth and going straight to map test...');
+    // Skip authentication and go straight to testing the map
+    testMapDirectly();
     return;
   }
 
   initialize();
 });
+
+function testMapDirectly() {
+  console.log('Testing map directly...');
+  
+  // Hide auth screen and show app
+  if (elements.authScreen) {
+    elements.authScreen.classList.add('hidden');
+  }
+  if (elements.appShell) {
+    elements.appShell.classList.remove('hidden');
+  }
+  
+  // Set some fake user data to prevent errors
+  if (elements.userName) elements.userName.textContent = 'Test User';
+  if (elements.userEmail) elements.userEmail.textContent = 'test@example.com';
+  if (elements.userInitials) elements.userInitials.textContent = 'TU';
+  
+  // Ensure map view is active
+  console.log('Making sure map view is active...');
+  document.querySelectorAll('.view').forEach((section) => {
+    section.classList.remove('is-active');
+  });
+  const mapView = document.querySelector('[data-view="map"]');
+  if (mapView) {
+    mapView.classList.add('is-active');
+    console.log('Map view activated');
+  } else {
+    console.error('Could not find map view element');
+  }
+  
+  // Wait a bit for CSS transitions, then initialize map
+  setTimeout(() => {
+    console.log('About to initialize map...');
+    console.log('Map container visible?', elements.mapContainer && window.getComputedStyle(elements.mapContainer).display !== 'none');
+    initializeMap();
+  }, 200);
+}
 
 function initialize() {
   setupAuthTabs();
@@ -1594,89 +1639,99 @@ function updateLocationHash(view) {
 }
 
 function initializeMap() {
-  // Clean up existing map instance
-  if (mapInstance) {
-    mapInstance.remove();
-    mapInstance = null;
-  }
-  if (!elements.mapContainer) return;
+  console.log('=== initializeMap() called ===');
+  console.log('mapContainer element:', elements.mapContainer);
+  console.log('Leaflet available:', typeof L !== 'undefined');
   
-  // Ensure the map container is visible and has dimensions
-  const containerStyle = window.getComputedStyle(elements.mapContainer);
-  if (containerStyle.display === 'none' || containerStyle.width === '0px' || containerStyle.height === '0px') {
-    console.warn('Map container not ready, retrying...');
-    setTimeout(() => initializeMap(), 200);
+  // Check if Leaflet is available
+  if (typeof L === 'undefined') {
+    console.warn('Leaflet not loaded yet, retrying in 500ms...');
+    setTimeout(() => initializeMap(), 500);
     return;
   }
   
-  // Reset all map-related variables
-  mapMarkers = [];
-  routeLine = null;
-  heatLayer = null;
-  heatActive = false;
-
-  // Create map instance
-  mapInstance = L.map(elements.mapContainer, {
-    center: [20, 0],
-    zoom: 2,
-    zoomControl: false,
-    preferCanvas: true,
-  });
-
-  // Use OpenStreetMap as the primary layer (more reliable)
-  streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    maxZoom: 19,
-    minZoom: 1,
-    errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
-  });
-
-  // Add the street layer immediately
-  streetLayer.addTo(mapInstance);
-
-  // Create satellite layer as optional
-  satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-    attribution: '&copy; <a href="https://www.esri.com/">Esri</a>, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
-    maxZoom: 18,
-    minZoom: 1,
-    errorTileUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
-  });
-
-  // Add layer control
-  L.control.layers(
-    {
-      'Street Map': streetLayer,
-      'Satellite': satelliteLayer,
-    },
-    {},
-    {
-      position: 'bottomleft',
-      collapsed: true,
+  if (!elements.mapContainer) {
+    console.error('No map container found!');
+    return;
+  }
+  
+  // Get container style info
+  const containerStyle = window.getComputedStyle(elements.mapContainer);
+  const dimensions = {
+    offsetWidth: elements.mapContainer.offsetWidth,
+    offsetHeight: elements.mapContainer.offsetHeight,
+    clientWidth: elements.mapContainer.clientWidth,
+    clientHeight: elements.mapContainer.clientHeight,
+    display: containerStyle.display,
+    visibility: containerStyle.visibility,
+    position: containerStyle.position,
+    width: containerStyle.width,
+    height: containerStyle.height
+  };
+  
+  console.log('Map container dimensions and style:', dimensions);
+  
+  // Check if container has proper dimensions
+  if (dimensions.offsetWidth === 0 || dimensions.offsetHeight === 0) {
+    console.warn('Map container has zero dimensions, retrying in 300ms...');
+    setTimeout(() => initializeMap(), 300);
+    return;
+  }
+  
+  // Clean up existing map instance
+  if (mapInstance) {
+    console.log('Removing existing map instance');
+    try {
+      mapInstance.remove();
+    } catch (e) {
+      console.warn('Error removing map:', e);
     }
-  ).addTo(mapInstance);
+    mapInstance = null;
+  }
+  
+  try {
+    console.log('Creating simple Leaflet map...');
+    
+    // Create map instance with minimal options
+    mapInstance = L.map(elements.mapContainer, {
+      center: [51.505, -0.09],
+      zoom: 13
+    });
+    
+    console.log('Map instance created successfully:', mapInstance);
 
-  // Add zoom control
-  L.control.zoom({ position: 'bottomright' }).addTo(mapInstance);
-  
-  // Add click handler
-  mapInstance.on('click', handleMapClick);
-  
-  // Ensure proper sizing after map is ready
-  mapInstance.whenReady(() => {
+    // Add simple OpenStreetMap tiles
+    const tiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors',
+      maxZoom: 19
+    });
+    
+    tiles.addTo(mapInstance);
+    console.log('Tiles added to map');
+    
+    // Add a test marker
+    const marker = L.marker([51.5, -0.09]).addTo(mapInstance)
+      .bindPopup('🗺️ Map is working! This is a test marker.')
+      .openPopup();
+    
+    console.log('Test marker added:', marker);
+    
+    // Ensure proper sizing
     setTimeout(() => {
       if (mapInstance) {
         mapInstance.invalidateSize();
-        console.log('Map initialized and sized');
+        console.log('Map size invalidated - final dimensions:', {
+          width: elements.mapContainer.offsetWidth,
+          height: elements.mapContainer.offsetHeight
+        });
       }
     }, 100);
-  });
-  
-  // Additional size invalidation after a delay
-  setTimeout(() => {
-    if (mapInstance) {
-      mapInstance.invalidateSize();
-    }
-  }, 500);
+    
+    console.log('=== Map initialization completed successfully ===');
+    
+  } catch (error) {
+    console.error('=== Error initializing map ===', error);
+  }
 }
 
 function centerMap() {
