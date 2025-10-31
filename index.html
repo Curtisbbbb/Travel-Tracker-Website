@@ -93,14 +93,13 @@
         </div>
       </div>
       <nav class="sidebar-nav">
-        <button class="nav-link is-active" data-view="dashboard" type="button">Dashboard</button>
-        <button class="nav-link" data-view="budget" type="button">Budget HQ</button>
+        <button class="nav-link is-active" data-view="map" type="button">Route Map</button>
+        <button class="nav-link" data-view="dashboard" type="button">Dashboard</button>
         <button class="nav-link" data-view="itinerary" type="button">Itinerary Lab</button>
-        <button class="nav-link" data-view="map" type="button">Route Map</button>
         <a class="nav-link" href="classic-budget/index.html">Classic Tracker</a>
       </nav>
       <div class="sidebar-footer">
-        <button id="openQuickDestination" class="ghost" type="button">Add destination</button>
+        <button id="openQuickDestination" class="ghost" type="button">Add stop</button>
         <button id="logout" class="danger" type="button">Sign out</button>
       </div>
     </aside>
@@ -152,99 +151,6 @@
         </div>
       </section>
 
-      <section class="view" data-view="budget">
-        <div class="two-column">
-          <div class="column">
-            <div class="panel">
-              <div class="panel-header">
-                <h2>Plan a destination</h2>
-              </div>
-              <form id="destinationForm" class="form" novalidate>
-                <div class="field">
-                  <label for="destinationLocation">Location</label>
-                  <input id="destinationLocation" name="location" placeholder="e.g. Bangkok, Thailand" required />
-                </div>
-                <div class="field-group">
-                  <div class="field">
-                    <label for="destinationStart">Arrival date</label>
-                    <input id="destinationStart" name="start" type="date" required />
-                  </div>
-                  <div class="field">
-                    <label for="destinationNights">Nights</label>
-                    <input id="destinationNights" name="nights" type="number" min="1" value="3" required />
-                  </div>
-                </div>
-                <div class="field">
-                  <label for="destinationBudget">Budget (home currency)</label>
-                  <input id="destinationBudget" name="budget" type="number" min="0" step="0.01" placeholder="500" />
-                </div>
-                <div class="field">
-                  <label for="destinationActivities">Top experiences (comma separated)</label>
-                  <textarea id="destinationActivities" name="activities" rows="2" placeholder="Street food crawl, Floating markets, Rooftop sundowners"></textarea>
-                </div>
-                <button class="primary" type="submit">Add destination</button>
-                <p class="form-feedback" id="destinationFeedback"></p>
-              </form>
-            </div>
-
-            <div class="panel">
-              <div class="panel-header">
-                <h2>Track an expense</h2>
-              </div>
-              <form id="expenseForm" class="form" novalidate>
-                <div class="field">
-                  <label for="expenseDestination">Destination</label>
-                  <select id="expenseDestination"></select>
-                </div>
-                <div class="field-group">
-                  <div class="field">
-                    <label for="expenseCategory">Category</label>
-                    <select id="expenseCategory">
-                      <option value="stay">Stay</option>
-                      <option value="food">Food &amp; Drink</option>
-                      <option value="transport">Transport</option>
-                      <option value="experience">Experiences</option>
-                      <option value="shopping">Shopping</option>
-                      <option value="other">Other</option>
-                    </select>
-                  </div>
-                  <div class="field">
-                    <label for="expenseAmount">Amount</label>
-                    <input id="expenseAmount" type="number" min="0" step="0.01" placeholder="85.50" required />
-                  </div>
-                </div>
-                <div class="field-group">
-                  <div class="field">
-                    <label for="expenseDate">Date</label>
-                    <input id="expenseDate" type="date" required />
-                  </div>
-                  <div class="field">
-                    <label for="expenseNotes">Notes</label>
-                    <input id="expenseNotes" type="text" placeholder="Cooking class" />
-                  </div>
-                </div>
-                <button class="secondary" type="submit">Record expense</button>
-                <p class="form-feedback" id="expenseFeedback"></p>
-              </form>
-            </div>
-          </div>
-
-          <div class="column">
-            <div class="panel">
-              <div class="panel-header">
-                <div>
-                  <h2>Budget intelligence</h2>
-                  <p class="panel-sub" id="budgetSubtitle">Select a destination to see the breakdown.</p>
-                </div>
-                <select id="budgetDestinationPicker"></select>
-              </div>
-              <div class="budget-summary" id="budgetSummary"></div>
-              <div class="expense-list" id="expenseList"></div>
-            </div>
-          </div>
-        </div>
-      </section>
-
       <section class="view" data-view="itinerary">
         <div class="itinerary-layout">
           <div class="itinerary-list" id="itineraryList"></div>
@@ -258,17 +164,25 @@
         </div>
       </section>
 
-      <section class="view" data-view="map">
+      <section class="view is-active" data-view="map">
         <div class="panel full">
           <div class="panel-header">
             <div>
-              <h2>Immersive route map</h2>
-              <p class="panel-sub">Destinations are numbered in travel order. Tap a marker to open the itinerary.</p>
+              <h2>Route Planner</h2>
+              <p class="panel-sub">Search destinations, build your route, and drop pins to sync budgets automatically.</p>
             </div>
             <div class="map-actions">
               <button id="centerMap" class="ghost" type="button">Center map</button>
               <button id="toggleHeat" class="ghost" type="button">Toggle heat</button>
             </div>
+          </div>
+          <div class="map-tools">
+            <div class="map-search">
+              <input id="mapSearchInput" type="search" placeholder="Search a city, landmark, or address…" autocomplete="off" />
+              <button id="mapSearchButton" class="primary" type="button">Add stop</button>
+            </div>
+            <div id="mapSearchResults" class="map-search-results" role="listbox"></div>
+            <div id="routeStopsList" class="route-stops"></div>
           </div>
           <div id="mapContainer" class="map-container"></div>
         </div>

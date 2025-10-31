@@ -1,14 +1,18 @@
 const STORAGE_KEY = 'travel-tracker-v2';
 
-const countries = {
-  thailand: { name: 'Thailand', duration: 60, currency: 'THB', symbol: '฿', rate: 43.5 },
-  laos: { name: 'Laos', duration: 14, currency: 'LAK', symbol: '₭', rate: 25000 },
-  vietnam: { name: 'Vietnam', duration: 30, currency: 'VND', symbol: '₫', rate: 30000 },
-  cambodia: { name: 'Cambodia', duration: 14, currency: 'KHR', symbol: '៛', rate: 5100 },
-  malaysia: { name: 'Malaysia', duration: 14, currency: 'MYR', symbol: 'RM', rate: 5.8 },
-  philippines: { name: 'Philippines', duration: 45, currency: 'PHP', symbol: '₱', rate: 70 },
-  indonesia: { name: 'Indonesia', duration: 45, currency: 'IDR', symbol: 'Rp', rate: 19500 },
+const COUNTRY_PRESETS = {
+  thailand: { name: 'Thailand', duration: 60, currency: 'THB', symbol: '฿', rate: 43.5, flag: '🇹🇭' },
+  laos: { name: 'Laos', duration: 14, currency: 'LAK', symbol: '₭', rate: 25000, flag: '🇱🇦' },
+  vietnam: { name: 'Vietnam', duration: 30, currency: 'VND', symbol: '₫', rate: 30000, flag: '🇻🇳' },
+  cambodia: { name: 'Cambodia', duration: 14, currency: 'KHR', symbol: '៛', rate: 5100, flag: '🇰🇭' },
+  malaysia: { name: 'Malaysia', duration: 14, currency: 'MYR', symbol: 'RM', rate: 5.8, flag: '🇲🇾' },
+  philippines: { name: 'Philippines', duration: 45, currency: 'PHP', symbol: '₱', rate: 70, flag: '🇵🇭' },
+  indonesia: { name: 'Indonesia', duration: 45, currency: 'IDR', symbol: 'Rp', rate: 19500, flag: '🇮🇩' },
 };
+
+const COUNTRY_CONFIG_STORAGE_KEY = 'travel-tracker-country-configs';
+const COUNTRY_FLAG_DEFAULT = '🌍';
+let countries = loadCountryConfigs();
 
 const categoryLabels = {
   accommodation: 'Accommodation',
@@ -21,10 +25,23 @@ const categoryLabels = {
 
 const $ = (selector, scope = document) => scope.querySelector(selector);
 
-const SUPABASE_URL = window.SUPABASE_URL || 'https://rzartryefetwaetgsejh.supabase.co';
-const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ6YXJ0cnllZmV0d2FldGdzZWpoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjEyNDQ4NTUsImV4cCI6MjA3NjgyMDg1NX0.d6g7GAsjvERapOlcR-bFrJHDpnkMDgQZcqwGaqf5FpM';
+const SUPABASE_URL = window.SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || '';
 const SHARE_STORAGE_KEY = 'travel-tracker-share-id';
 const CLOUD_SYNC_DEBOUNCE = 1500;
+const DESTINATION_SELECT = `
+  id,
+  location,
+  start_date,
+  end_date,
+  nights,
+  budget,
+  coordinates,
+  created_at,
+  destination_expenses ( id, category, amount, date, notes )
+`;
+
+const destinationCache = new Map();
 
 let state = loadState();
 let currentCountry = null;
@@ -34,6 +51,9 @@ let supabaseClient = null;
 let activeShareId = localStorage.getItem(SHARE_STORAGE_KEY) || null;
 let pendingSyncTimer = null;
 let analyticsInteractionsBound = false;
+let currentUser = null;
+let supabaseReady = false;
+let suppressSupabaseSync = false;
 const newlyAddedExpenseIds = new Set();
 const lastHeroProgress = { percent: null };
 const lastDailyProgress = new Map();
@@ -56,7 +76,7 @@ const gbpFormatter = new Intl.NumberFormat('en-GB', {
 
 const localFormatterCache = new Map();
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   cacheDomReferences();
   setupMobileMenu();
   setupNavigation();
@@ -66,16 +86,22 @@ document.addEventListener('DOMContentLoaded', () => {
   setupAnalyticsDateInteractions();
   setupDataManagement();
   initSyncUI();
+  renderCountryNav();
   initializeSupabase();
+  await bootstrapSupabaseState();
 
-  // Select initial country based on hash or default to Thailand
   const initialHash = window.location.hash.replace('#', '');
-  const initialCountry = countries[initialHash] ? initialHash : 'thailand';
-  selectCountry(initialCountry);
+  const fallbackCountry = Object.keys(countries)[0] || null;
+  const initialCountry = countries[initialHash] ? initialHash : fallbackCountry;
+  if (initialCountry) {
+    selectCountry(initialCountry);
+  } else {
+    renderCountry();
+  }
 
   if (activeShareId) {
     fetchShare(activeShareId);
-  } else {
+  } else if (!supabaseReady) {
     updateSyncStatus('Local data only', 'info');
   }
 });
@@ -133,6 +159,9 @@ function cacheDomReferences() {
     menuToggle: $('.menu-toggle'),
     closeMenu: $('.close-menu'),
     mobileOverlay: $('.mobile-overlay'),
+    countryNav: $('#countryNav'),
+    addCountryButton: $('#addCountry'),
+    backToAtlasButton: $('#backToAtlas'),
   };
 
   if (elements.dateInput && !elements.dateInput.value) {
@@ -188,29 +217,54 @@ function setupMobileMenu() {
 }
 
 function setupNavigation() {
-  document.querySelectorAll('.nav-item').forEach((item) => {
-    item.addEventListener('click', (evt) => {
+  if (elements.countryNav) {
+    elements.countryNav.addEventListener('click', (evt) => {
+      const removeButton = evt.target.closest('[data-remove-country]');
+      if (removeButton) {
+        evt.preventDefault();
+        evt.stopPropagation();
+        const { removeCountry } = removeButton.dataset;
+        if (removeCountry) {
+          handleRemoveCountry(removeCountry);
+        }
+        return;
+      }
+
+      const navItem = evt.target.closest('.nav-item[data-country]');
+      if (!navItem) return;
       evt.preventDefault();
-      const { country } = item.dataset;
+      const { country } = navItem.dataset;
       if (!country || !countries[country]) return;
       selectCountry(country);
-      
-      // Close mobile menu if it's open
-      if (elements.sidebar?.classList.contains('active')) {
-        if (typeof elements.closeMenuHandler === 'function') {
-          elements.closeMenuHandler();
-        } else {
-          elements.sidebar.classList.remove('active');
-          document.body.style.overflow = '';
-          if (elements.mobileOverlay) {
-            elements.mobileOverlay.classList.remove('active');
-          }
-          document.body.classList.remove('menu-open');
-          elements.menuToggle?.classList.remove('menu-toggle--hidden');
-        }
+      closeMobileSidebar();
+    });
+
+    elements.countryNav.addEventListener('keydown', (evt) => {
+      if (evt.key !== 'Enter' && evt.key !== ' ') return;
+      const navItem = evt.target.closest('.nav-item[data-country]');
+      if (!navItem) return;
+      evt.preventDefault();
+      const { country } = navItem.dataset;
+      if (country && countries[country]) {
+        selectCountry(country);
+        closeMobileSidebar();
       }
     });
-  });
+  }
+
+  if (elements.addCountryButton) {
+    elements.addCountryButton.addEventListener('click', () => {
+      handleAddCountry().catch((error) => {
+        console.error('Failed to add destination', error);
+      });
+    });
+  }
+
+  if (elements.backToAtlasButton) {
+    elements.backToAtlasButton.addEventListener('click', () => {
+      window.location.href = '../index.html';
+    });
+  }
 
   window.addEventListener('hashchange', () => {
     const hashCountry = window.location.hash.replace('#', '');
@@ -218,6 +272,400 @@ function setupNavigation() {
       selectCountry(hashCountry);
     }
   });
+}
+
+function closeMobileSidebar() {
+  if (!elements.sidebar?.classList.contains('active')) return;
+  if (typeof elements.closeMenuHandler === 'function') {
+    elements.closeMenuHandler();
+    return;
+  }
+  elements.sidebar.classList.remove('active');
+  document.body.style.overflow = '';
+  if (elements.mobileOverlay) {
+    elements.mobileOverlay.classList.remove('active');
+  }
+  document.body.classList.remove('menu-open');
+  elements.menuToggle?.classList.remove('menu-toggle--hidden');
+}
+
+function renderCountryNav(activeSlug = currentCountry) {
+  if (!elements.countryNav) return;
+  const entries = Object.entries(countries);
+  if (!entries.length) {
+    elements.countryNav.innerHTML = '<div class="nav-empty">Add your first destination to begin tracking.</div>';
+    return;
+  }
+
+  const markup = entries
+    .sort((a, b) => a[1].name.localeCompare(b[1].name))
+    .map(([slug, config]) => {
+      const flag = escapeHtml(config.flag || COUNTRY_FLAG_DEFAULT);
+      const meta = escapeHtml(buildCountryMeta(config));
+      return `
+        <div class="nav-item ${slug === activeSlug ? 'active' : ''}" role="button" tabindex="0" data-country="${slug}">
+          <span class="country-flag">${flag}</span>
+          <span class="nav-item__label">
+            <span class="country-name">${escapeHtml(config.name)}</span>
+            <span class="nav-item__meta">${meta}</span>
+          </span>
+          <button class="nav-item__remove" type="button" data-remove-country="${slug}" aria-label="Remove ${escapeHtml(config.name)}" title="Remove ${escapeHtml(config.name)}">×</button>
+        </div>
+      `;
+    })
+    .join('');
+
+  elements.countryNav.innerHTML = markup;
+}
+
+async function handleAddCountry() {
+  const name = prompt('Destination or country name?');
+  if (!name) return;
+
+  const slug = slugify(name);
+  if (countries[slug]) {
+    alert('That destination is already being tracked.');
+    return;
+  }
+
+  const currencyCode = (prompt('Currency code (e.g. THB, USD, EUR)', 'GBP') || 'GBP').trim().toUpperCase();
+  const currencySymbol = prompt('Currency symbol (e.g. £, ฿, $)', currencyCode === 'GBP' ? '£' : '') || currencyCode;
+  const rateInput = prompt('Exchange rate (local currency per £1)', '1');
+  const exchangeRate = Math.max(0.0001, parseFloat(rateInput) || 1);
+  const nightsInput = prompt('How many nights are planned here?', '7');
+  const plannedNights = Math.max(1, parseInt(nightsInput, 10) || 7);
+  const flagInput = prompt('Flag emoji (optional)', COUNTRY_FLAG_DEFAULT) || COUNTRY_FLAG_DEFAULT;
+
+  countries[slug] = {
+    name: name.trim(),
+    duration: plannedNights,
+    currency: currencyCode,
+    symbol: currencySymbol,
+    rate: exchangeRate,
+    flag: flagInput,
+  };
+
+  state[slug] = {
+    budget: 0,
+    durationDays: plannedNights,
+    expenses: [],
+  };
+
+  saveCountryConfigs();
+  renderCountryNav(slug);
+  selectCountry(slug);
+  suppressSupabaseSync = true;
+  try {
+    persistState();
+  } finally {
+    suppressSupabaseSync = false;
+  }
+  if (supabaseReady) {
+    await syncCountryToSupabase(slug);
+    await loadDestinationsFromSupabase(slug);
+    selectCountry(slug);
+  }
+}
+
+async function handleRemoveCountry(slug) {
+  const config = countries[slug];
+  if (!config) return;
+  const confirmRemoval = confirm(`Remove ${config.name} and all of its expenses?`);
+  if (!confirmRemoval) return;
+
+  const wasCurrent = currentCountry === slug;
+  if (wasCurrent) {
+    currentCountry = null;
+  }
+
+  delete countries[slug];
+  delete state[slug];
+  saveCountryConfigs();
+  renderCountryNav();
+  suppressSupabaseSync = true;
+  try {
+    persistState();
+  } finally {
+    suppressSupabaseSync = false;
+  }
+
+  if (supabaseReady) {
+    await deleteDestinationFromSupabase(slug);
+    await loadDestinationsFromSupabase();
+  }
+
+  const nextSlug = wasCurrent ? (Object.keys(countries)[0] || null) : currentCountry;
+  selectCountry(nextSlug);
+}
+
+function buildCountryMeta(config) {
+  const parts = [];
+  if (config.currency) {
+    parts.push(config.currency.toUpperCase());
+  }
+  const rate = Number(config.rate);
+  if (Number.isFinite(rate) && rate !== 1 && config.symbol) {
+    const decimals = rate > 100 ? 0 : 2;
+    const formatted = rate.toLocaleString('en-GB', {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    });
+    const spacing = config.symbol === 'Rp' || config.symbol === 'RM' ? ' ' : '';
+    parts.push(`£1 = ${config.symbol}${spacing}${formatted}`);
+  }
+  return parts.join(' • ') || 'Budget ready';
+}
+
+function slugify(value) {
+  return (value || '')
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || `destination-${Date.now()}`;
+}
+
+async function bootstrapSupabaseState() {
+  if (!supabaseConfigured()) {
+    renderCountryNav(currentCountry);
+    return;
+  }
+  if (!supabaseClient) {
+    initializeSupabase();
+  }
+  if (!supabaseClient) return;
+
+  try {
+    const { data } = await supabaseClient.auth.getSession();
+    currentUser = data?.session?.user || null;
+    if (!currentUser) {
+      updateSyncStatus('Sign in via Travel Atlas to sync your budgets.', 'warning');
+      return;
+    }
+    supabaseReady = true;
+    await loadDestinationsFromSupabase();
+    if (!destinationCache.size) {
+      await syncAllCountriesToSupabase({ skipReload: true });
+      await loadDestinationsFromSupabase();
+    }
+    updateSyncStatus('Connected to Supabase', 'success');
+  } catch (error) {
+    supabaseReady = false;
+    console.error('Failed to bootstrap Supabase state', error);
+    updateSyncStatus('Supabase connection failed', 'error');
+  }
+}
+
+async function loadDestinationsFromSupabase(preserveSlug = currentCountry) {
+  if (!supabaseClient || !currentUser) return;
+  try {
+    const { data, error } = await supabaseClient
+      .from('destinations')
+      .select(DESTINATION_SELECT)
+      .eq('user_id', currentUser.id)
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+
+    destinationCache.clear();
+    const nextCountries = {};
+    const nextState = {};
+    const slugsFromSupabase = new Set();
+    const existingCountries = { ...countries };
+    const existingState = { ...state };
+
+    data.forEach((dest) => {
+      let slug = slugify(dest.location);
+      if (nextCountries[slug]) {
+        slug = `${slug}-${String(dest.id).slice(0, 6)}`;
+      }
+      slugsFromSupabase.add(slug);
+      destinationCache.set(slug, dest);
+      nextCountries[slug] = buildCountryConfigFromDestination(slug, dest, existingCountries[slug]);
+      nextState[slug] = buildCountryStateFromDestination(slug, dest, existingState[slug]);
+    });
+
+    Object.entries(existingCountries).forEach(([slug, config]) => {
+      if (slugsFromSupabase.has(slug)) return;
+      nextCountries[slug] = config;
+      nextState[slug] = existingState[slug] || ensureCountryState(slug);
+    });
+
+    countries = nextCountries;
+    state = nextState;
+    saveCountryConfigs();
+    renderCountryNav(preserveSlug && countries[preserveSlug] ? preserveSlug : Object.keys(countries)[0] || null);
+    suppressSupabaseSync = true;
+    try {
+      persistState();
+    } finally {
+      suppressSupabaseSync = false;
+    }
+  } catch (error) {
+    console.error('Unable to load destinations from Supabase', error);
+  }
+}
+
+async function syncAllCountriesToSupabase({ skipReload = false } = {}) {
+  if (!supabaseReady || !supabaseClient || !currentUser) return;
+  const slugs = Object.keys(countries);
+  for (const slug of slugs) {
+    // eslint-disable-next-line no-await-in-loop
+    await syncCountryToSupabase(slug, { skipReload: true });
+  }
+  if (!skipReload) {
+    await loadDestinationsFromSupabase();
+  }
+}
+
+async function syncCountryToSupabase(slug, options = {}) {
+  if (!supabaseReady || !supabaseClient || !currentUser) return;
+  const config = countries[slug];
+  const countryState = state[slug];
+  if (!config || !countryState) return;
+
+  try {
+    let dest = destinationCache.get(slug);
+
+    if (!dest) {
+      const insertPayload = {
+        user_id: currentUser.id,
+        location: config.name,
+        start_date: todayIsoString(),
+        end_date: computeEndDateFromNights(todayIsoString(), countryState.durationDays),
+        nights: countryState.durationDays,
+        budget: countryState.budget,
+        activities: [],
+        coordinates: mergeCoordinatesCurrency({}, config),
+      };
+      const { data, error } = await supabaseClient
+        .from('destinations')
+        .insert(insertPayload)
+        .select('id, location, start_date, end_date, nights, budget, coordinates')
+        .single();
+      if (error) throw error;
+      dest = data;
+      destinationCache.set(slug, dest);
+    } else {
+      const updatePayload = {
+        budget: countryState.budget,
+        nights: countryState.durationDays,
+        coordinates: mergeCoordinatesCurrency(dest.coordinates, config),
+      };
+      if (dest.start_date) {
+        updatePayload.end_date = computeEndDateFromNights(dest.start_date, countryState.durationDays);
+      }
+      const { error } = await supabaseClient
+        .from('destinations')
+        .update(updatePayload)
+        .eq('id', dest.id);
+      if (error) throw error;
+    }
+
+    const destinationId = dest.id;
+    countries[slug].destinationId = destinationId;
+
+    const { error: deleteError } = await supabaseClient
+      .from('destination_expenses')
+      .delete()
+      .eq('destination_id', destinationId);
+    if (deleteError) throw deleteError;
+
+    const expenses = countryState.expenses || [];
+    if (expenses.length) {
+      const inserts = expenses.map((expense) => ({
+        destination_id: destinationId,
+        amount: expense.amount,
+        category: expense.category || 'other',
+        date: expense.date,
+        notes: expense.description || '',
+      }));
+      const { error: insertError } = await supabaseClient
+        .from('destination_expenses')
+        .insert(inserts);
+      if (insertError) throw insertError;
+    }
+
+    if (options.skipReload) {
+      destinationCache.set(slug, {
+        ...(destinationCache.get(slug) || dest),
+        id: dest.id,
+        location: config.name,
+        nights: countryState.durationDays,
+        budget: countryState.budget,
+        coordinates: mergeCoordinatesCurrency(dest.coordinates, config),
+      });
+    } else {
+      await loadDestinationsFromSupabase(slug);
+      if (currentCountry === slug) {
+        renderCountry();
+      }
+    }
+  } catch (error) {
+    console.error('Failed to sync destination', error);
+  }
+}
+
+async function deleteDestinationFromSupabase(slug) {
+  if (!supabaseReady || !supabaseClient) return;
+  const dest = destinationCache.get(slug);
+  if (!dest) return;
+  try {
+    const { error } = await supabaseClient.from('destinations').delete().eq('id', dest.id);
+    if (error) throw error;
+    destinationCache.delete(slug);
+  } catch (error) {
+    console.error('Failed to remove destination', error);
+  }
+}
+
+function buildCountryConfigFromDestination(slug, dest, previousConfig = {}) {
+  const preset = COUNTRY_PRESETS[slug] || {};
+  const currencyMeta = dest?.coordinates?.currency || {};
+  const currencyCode = (currencyMeta.code || previousConfig.currency || preset.currency || 'GBP').toUpperCase();
+  const currencySymbol = currencyMeta.symbol || previousConfig.symbol || preset.symbol || '£';
+  const currencyRate = Number(currencyMeta.rate) || previousConfig.rate || preset.rate || 1;
+  return {
+    name: dest.location,
+    duration: dest.nights || previousConfig.duration || preset.duration || 0,
+    currency: currencyCode,
+    symbol: currencySymbol,
+    rate: currencyRate,
+    flag: previousConfig.flag || preset.flag || COUNTRY_FLAG_DEFAULT,
+    destinationId: dest.id,
+  };
+}
+
+function buildCountryStateFromDestination(slug, dest, previousState = {}) {
+  const preset = COUNTRY_PRESETS[slug] || {};
+  return {
+    budget: Number(dest.budget) || previousState.budget || 0,
+    durationDays: dest.nights || previousState.durationDays || preset.duration || 0,
+    expenses: (dest.destination_expenses || []).map((expense) => ({
+      id: expense.id,
+      amount: Number(expense.amount) || 0,
+      description: expense.notes || '',
+      date: expense.date,
+      category: expense.category || 'other',
+    })),
+  };
+}
+
+function mergeCoordinatesCurrency(existing, config) {
+  const coordinates = existing && typeof existing === 'object' ? { ...existing } : {};
+  coordinates.currency = {
+    code: (config.currency || 'GBP').toUpperCase(),
+    symbol: config.symbol || '£',
+    rate: Number(config.rate) || 1,
+  };
+  return coordinates;
+}
+
+function computeEndDateFromNights(startIso, nights) {
+  const start = new Date(`${startIso}T00:00:00`);
+  if (Number.isNaN(start.getTime())) return startIso;
+  const totalNights = Math.max(0, Math.round(Number.isFinite(nights) ? nights : 0));
+  start.setDate(start.getDate() + totalNights);
+  return start.toISOString().split('T')[0];
 }
 
 function setupForm() {
@@ -514,7 +962,12 @@ function resetForm() {
 }
 
 function selectCountry(country) {
-  if (!countries[country]) return;
+  if (!country || !countries[country]) {
+    currentCountry = null;
+    renderCountryNav(null);
+    renderCountry();
+    return;
+  }
 
   currentCountry = country;
   ensureCountryState(currentCountry);
@@ -523,10 +976,7 @@ function selectCountry(country) {
   if (window.location.hash.replace('#', '') !== country) {
     window.location.hash = country;
   }
-
-  document.querySelectorAll('.nav-item').forEach((item) => {
-    item.classList.toggle('active', item.dataset.country === currentCountry);
-  });
+  renderCountryNav(country);
 
   renderCountry();
   updateExchangeRateDisplay();
@@ -534,7 +984,23 @@ function selectCountry(country) {
 }
 
 function renderCountry() {
-  if (!currentCountry) return;
+  if (!currentCountry || !countries[currentCountry]) {
+    if (elements.countryName) elements.countryName.textContent = 'Add a Destination';
+    if (elements.overallBudget) elements.overallBudget.textContent = formatGbp(0);
+    if (elements.plannedDays) elements.plannedDays.textContent = '0';
+    if (elements.dailyTarget) elements.dailyTarget.textContent = formatGbp(0);
+    if (elements.remainingBudget) elements.remainingBudget.textContent = formatGbp(0);
+    if (elements.dailySummaries) elements.dailySummaries.innerHTML = '<div class="day-summary__empty">Add a destination to see day-by-day insights.</div>';
+    if (elements.categoryBreakdown) elements.categoryBreakdown.innerHTML = '';
+    if (elements.overallBudgetProgress) {
+      elements.overallBudgetProgress.classList.add('hero-progress-card--empty');
+      elements.overallBudgetProgress.innerHTML = '<div class="hero-progress-placeholder"><p>No destination selected yet.</p></div>';
+    }
+    if (elements.budgetAlerts) {
+      elements.budgetAlerts.innerHTML = '<div class="meta">Add a destination to unlock insights.</div>';
+    }
+    return;
+  }
   const countryConfig = countries[currentCountry];
   const countryState = ensureCountryState(currentCountry);
 
@@ -1488,8 +1954,8 @@ function supabaseConfigured() {
   return (
     typeof SUPABASE_URL === 'string' &&
     typeof SUPABASE_ANON_KEY === 'string' &&
-    !SUPABASE_URL.includes('YOUR_SUPABASE_PROJECT') &&
-    !SUPABASE_ANON_KEY.includes('YOUR_SUPABASE_ANON_KEY')
+    SUPABASE_URL.trim().length > 0 &&
+    SUPABASE_ANON_KEY.trim().length > 0
   );
 }
 
@@ -1727,14 +2193,66 @@ function ensureCountryState(country) {
   if (!state[country]) {
     state[country] = {
       budget: 0,
-      durationDays: countries[country].duration,
+      durationDays: countries[country]?.duration ?? 0,
       expenses: [],
     };
   }
   if (!Number.isFinite(state[country].budget)) state[country].budget = 0;
-  if (!Number.isFinite(state[country].durationDays)) state[country].durationDays = countries[country].duration;
+  if (!Number.isFinite(state[country].durationDays)) state[country].durationDays = countries[country]?.duration ?? 0;
   if (!Array.isArray(state[country].expenses)) state[country].expenses = [];
   return state[country];
+}
+
+function loadCountryConfigs() {
+  try {
+    const stored = localStorage.getItem(COUNTRY_CONFIG_STORAGE_KEY);
+    if (!stored) {
+      return { ...COUNTRY_PRESETS };
+    }
+    const parsed = JSON.parse(stored);
+    return {
+      ...COUNTRY_PRESETS,
+      ...Object.entries(parsed || {}).reduce((acc, [key, value]) => {
+        acc[key] = {
+          ...COUNTRY_PRESETS[key],
+          ...value,
+        };
+        return acc;
+      }, {}),
+    };
+  } catch (error) {
+    console.error('Unable to load custom country configs:', error);
+    return { ...COUNTRY_PRESETS };
+  }
+}
+
+function saveCountryConfigs() {
+  const serialisable = Object.entries(countries).reduce((acc, [key, value]) => {
+    const preset = COUNTRY_PRESETS[key];
+    const differsFromPreset = !preset ||
+      preset.name !== value.name ||
+      preset.duration !== value.duration ||
+      preset.currency !== value.currency ||
+      preset.symbol !== value.symbol ||
+      Number(preset.rate) !== Number(value.rate) ||
+      preset.flag !== value.flag;
+    if (differsFromPreset) {
+      acc[key] = {
+        name: value.name,
+        duration: value.duration,
+        currency: value.currency,
+        symbol: value.symbol,
+        rate: value.rate,
+        flag: value.flag,
+      };
+    }
+    return acc;
+  }, {});
+  try {
+    localStorage.setItem(COUNTRY_CONFIG_STORAGE_KEY, JSON.stringify(serialisable));
+  } catch (error) {
+    console.error('Unable to save country configs:', error);
+  }
 }
 
 function loadState() {
@@ -1748,7 +2266,7 @@ function loadState() {
       const existing = parsed[countryKey];
       acc[countryKey] = {
         budget: existing?.budget ?? 0,
-        durationDays: existing?.durationDays ?? countries[countryKey].duration,
+        durationDays: existing?.durationDays ?? countries[countryKey]?.duration ?? 0,
         expenses: Array.isArray(existing?.expenses) ? existing.expenses : [],
       };
       return acc;
@@ -1766,13 +2284,18 @@ function persistState() {
     console.error('Unable to save travel data:', error);
   }
   queueCloudSync();
+  if (!suppressSupabaseSync && currentCountry) {
+    syncCountryToSupabase(currentCountry).catch((error) => {
+      console.error('Supabase sync failed', error);
+    });
+  }
 }
 
 function initialiseBlankState() {
   return Object.keys(countries).reduce((acc, countryKey) => {
     acc[countryKey] = {
       budget: 0,
-      durationDays: countries[countryKey].duration,
+      durationDays: countries[countryKey]?.duration ?? 0,
       expenses: [],
     };
     return acc;

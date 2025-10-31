@@ -56,36 +56,29 @@
           </svg>
         </button>
       </div>
-      <nav class="nav">
-        <a class="nav-item" data-country="thailand" href="#thailand">
-          <span class="country-flag">🇹🇭</span>
-          <span class="country-name">Thailand</span>
+      <nav class="nav nav-primary">
+        <a class="nav-item nav-item--primary" href="../index.html">
+          <span class="country-flag">🏠</span>
+          <span class="country-name">Travel Atlas HQ</span>
         </a>
-        <a class="nav-item" data-country="laos" href="#laos">
-          <span class="country-flag">🇱🇦</span>
-          <span class="country-name">Laos</span>
-        </a>
-        <a class="nav-item" data-country="vietnam" href="#vietnam">
-          <span class="country-flag">🇻🇳</span>
-          <span class="country-name">Vietnam</span>
-        </a>
-        <a class="nav-item" data-country="cambodia" href="#cambodia">
-          <span class="country-flag">🇰🇭</span>
-          <span class="country-name">Cambodia</span>
-        </a>
-        <a class="nav-item" data-country="malaysia" href="#malaysia">
-          <span class="country-flag">🇲🇾</span>
-          <span class="country-name">Malaysia</span>
-        </a>
-        <a class="nav-item" data-country="philippines" href="#philippines">
-          <span class="country-flag">🇵🇭</span>
-          <span class="country-name">Philippines</span>
-        </a>
-        <a class="nav-item" data-country="indonesia" href="#indonesia">
-          <span class="country-flag">🇮🇩</span>
-          <span class="country-name">Indonesia</span>
+        <a class="nav-item" href="../index.html#dashboard">
+          <span class="country-flag">📊</span>
+          <span class="country-name">Dashboard</span>
         </a>
       </nav>
+
+      <div class="nav-divider"></div>
+
+      <div class="nav-section">
+        <div class="nav-section__header">
+          <span class="nav-section__title">Tracked Destinations</span>
+          <button id="addCountry" class="nav-add" type="button" title="Add destination">
+            <span aria-hidden="true">＋</span>
+            <span class="sr-only">Add destination</span>
+          </button>
+        </div>
+        <nav class="nav nav-countries" id="countryNav"></nav>
+      </div>
     </aside>
 
     <main class="main">
@@ -95,6 +88,13 @@
           <span class="subtitle">Daily Budget Tracker</span>
         </div>
         <div class="top-actions">
+          <button id="backToAtlas" class="action-button primary-light" type="button">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path d="M3 12l9-9 9 9"></path>
+              <path d="M9 21V9h6v12"></path>
+            </svg>
+            <span>Back to Travel Atlas</span>
+          </button>
           <button id="openSync" class="action-button secondary">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
               <path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7"></path>
@@ -257,6 +257,10 @@
   </div>
 
   <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.42.5/dist/umd/supabase.min.js"></script>
+  <script>
+    window.SUPABASE_URL = 'https://hjeekvjgqbbefazylmtu.supabase.co';
+    window.SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhqZWVrdmpncWJiZWZhenlsbXR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE4NTMzMjEsImV4cCI6MjA3NzQyOTMyMX0.gcx9FMI8qsXVcZ7G74D9qf_w0M1l6jYCRpsjw9kiqCw';
+  </script>
   <div id="syncModal" class="sync-modal hidden" aria-hidden="true">
     <div class="sync-modal__overlay" data-close-sync></div>
     <div class="sync-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="syncModalTitle">

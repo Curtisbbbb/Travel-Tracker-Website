@@ -37,21 +37,12 @@ const elements = {
   dashboardBudgetBar: document.getElementById('dashboardBudgetBar'),
   dashboardHighlights: document.getElementById('dashboardHighlights'),
   upcomingDestinations: document.getElementById('upcomingDestinations'),
-  destinationForm: document.getElementById('destinationForm'),
-  destinationFeedback: document.getElementById('destinationFeedback'),
-  destinationLocation: document.getElementById('destinationLocation'),
-  destinationStart: document.getElementById('destinationStart'),
-  destinationNights: document.getElementById('destinationNights'),
-  destinationBudget: document.getElementById('destinationBudget'),
-  destinationActivities: document.getElementById('destinationActivities'),
   expenseForm: document.getElementById('expenseForm'),
-  expenseDestination: document.getElementById('expenseDestination'),
   expenseCategory: document.getElementById('expenseCategory'),
   expenseAmount: document.getElementById('expenseAmount'),
   expenseDate: document.getElementById('expenseDate'),
   expenseNotes: document.getElementById('expenseNotes'),
   expenseFeedback: document.getElementById('expenseFeedback'),
-  budgetDestinationPicker: document.getElementById('budgetDestinationPicker'),
   budgetSubtitle: document.getElementById('budgetSubtitle'),
   budgetSummary: document.getElementById('budgetSummary'),
   expenseList: document.getElementById('expenseList'),
@@ -60,6 +51,10 @@ const elements = {
   mapContainer: document.getElementById('mapContainer'),
   centerMap: document.getElementById('centerMap'),
   toggleHeat: document.getElementById('toggleHeat'),
+  mapSearchInput: document.getElementById('mapSearchInput'),
+  mapSearchButton: document.getElementById('mapSearchButton'),
+  mapSearchResults: document.getElementById('mapSearchResults'),
+  routeStopsList: document.getElementById('routeStopsList'),
   userName: document.getElementById('userName'),
   userEmail: document.getElementById('userEmail'),
   userInitials: document.getElementById('userInitials'),
@@ -74,26 +69,32 @@ const CATEGORY_LABELS = {
   other: 'Other',
 };
 
+const COUNTRY_DEFAULTS = {
+  TH: { currency: 'THB', symbol: '฿', rate: 43.5 },
+  LA: { currency: 'LAK', symbol: '₭', rate: 25000 },
+  VN: { currency: 'VND', symbol: '₫', rate: 30000 },
+  KH: { currency: 'KHR', symbol: '៛', rate: 5100 },
+  MY: { currency: 'MYR', symbol: 'RM', rate: 5.8 },
+  PH: { currency: 'PHP', symbol: '₱', rate: 70 },
+  ID: { currency: 'IDR', symbol: 'Rp', rate: 19500 },
+  GB: { currency: 'GBP', symbol: '£', rate: 1 },
+};
+
 const viewConfig = {
+  map: {
+    title: 'Route Planner',
+    subtitle: 'Build your journey and sync every stop with budgets and itineraries.',
+    action: 'Add next stop',
+  },
   dashboard: {
     title: 'Dashboard',
     subtitle: 'Your travel intelligence hub.',
-    action: 'New destination',
-  },
-  budget: {
-    title: 'Budget HQ',
-    subtitle: 'Keep every cost aligned with the vision.',
-    action: 'Record expense',
+    action: 'Add next stop',
   },
   itinerary: {
     title: 'Itinerary Lab',
     subtitle: 'Shape unforgettable day-by-day experiences.',
     action: 'Add itinerary day',
-  },
-  map: {
-    title: 'Route Map',
-    subtitle: 'See the entire journey come alive.',
-    action: 'Center map',
   },
 };
 
@@ -103,13 +104,14 @@ const state = {
 };
 
 let currentUser = null;
-let currentView = 'dashboard';
+let currentView = 'map';
 let selectedDestinationId = null;
 let mapInstance = null;
 let mapMarkers = [];
 let routeLine = null;
 let heatLayer = null;
 let heatActive = false;
+let mapSearchResultsCache = [];
 
 const currencyFormatter = new Intl.NumberFormat('en-GB', {
   style: 'currency',
@@ -133,7 +135,9 @@ function initialize() {
   setupNavigation();
   setupForms();
   setupActions();
+  setupMapInteractions();
   seedDefaultDates();
+  window.addEventListener('hashchange', handleHashNavigation);
   void tryRestoreSession();
 }
 
@@ -266,140 +270,7 @@ function setupNavigation() {
 }
 
 function setupForms() {
-  elements.destinationForm.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    ensureAuthenticated();
-
-    const location = elements.destinationLocation.value.trim();
-    const start = elements.destinationStart.value;
-    const nights = Number(elements.destinationNights.value) || 0;
-    const budget = Number(elements.destinationBudget.value) || 0;
-    const activities = elements.destinationActivities.value
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean);
-
-    if (!location || !start || nights <= 0) {
-      elements.destinationFeedback.textContent = 'Location, arrival date, and nights are required.';
-      return;
-    }
-
-    const destination = {
-      location,
-      startDate: start,
-      nights,
-      endDate: computeEndDate(start, nights),
-      budget,
-      activities,
-      coordinates: null,
-      placeName: null,
-    };
-
-    let geocoded = false;
-    try {
-      elements.destinationFeedback.textContent = 'Locating your destination on the globe…';
-      await geocodeDestination(destination);
-      geocoded = Boolean(destination.coordinates);
-    } catch (error) {
-      console.error('Geocoding failed', error);
-    }
-
-    const payload = {
-      user_id: currentUser.id,
-      location: destination.location,
-      start_date: destination.startDate,
-      end_date: destination.endDate,
-      nights: destination.nights,
-      budget: destination.budget,
-      activities: destination.activities,
-      coordinates: destination.coordinates,
-      place_name: destination.placeName,
-    };
-
-    const { data, error } = await supabase
-      .from('destinations')
-      .insert(payload)
-      .select('id')
-      .single();
-
-    if (error) {
-      console.error('Destination save failed', error);
-      elements.destinationFeedback.textContent = error.message || 'Could not save destination.';
-      return;
-    }
-
-    selectedDestinationId = data.id;
-    elements.destinationFeedback.textContent = geocoded
-      ? 'Destination locked in. Time to plan the magic!'
-      : 'Destination added. Map update pending — refine the location if needed.';
-
-    elements.destinationForm.reset();
-    seedDefaultDates();
-    focusElement(elements.expenseDestination);
-
-    await loadDestinations();
-    renderAll();
-  });
-
-  elements.expenseForm.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    ensureAuthenticated();
-
-    const destinationId = elements.expenseDestination.value;
-    const category = elements.expenseCategory.value;
-    const amount = Number(elements.expenseAmount.value);
-    const date = elements.expenseDate.value;
-    const notes = elements.expenseNotes.value.trim();
-
-    if (!destinationId) {
-      elements.expenseFeedback.textContent = 'Select which destination this spend belongs to.';
-      return;
-    }
-
-    if (!amount || amount <= 0) {
-      elements.expenseFeedback.textContent = 'Enter an amount greater than zero.';
-      return;
-    }
-
-    if (!date) {
-      elements.expenseFeedback.textContent = 'Let us know when this expense happens.';
-      return;
-    }
-
-    const { error } = await supabase.from('destination_expenses').insert({
-      destination_id: destinationId,
-      category,
-      amount,
-      date,
-      notes,
-    });
-
-    if (error) {
-      console.error('Expense save failed', error);
-      elements.expenseFeedback.textContent = error.message || 'Could not record the expense.';
-      return;
-    }
-
-    elements.expenseFeedback.textContent = 'Expense tracked. Budget intel updated.';
-    elements.expenseForm.reset();
-    seedDefaultDates();
-
-    await loadDestinations();
-    renderBudgetPanel();
-    renderDashboard();
-  });
-
-  elements.budgetDestinationPicker.addEventListener('change', () => {
-    selectedDestinationId = elements.budgetDestinationPicker.value || null;
-    renderBudgetPanel();
-    renderItinerary();
-  });
-
-  elements.expenseDestination.addEventListener('change', () => {
-    selectedDestinationId = elements.expenseDestination.value || selectedDestinationId;
-    renderBudgetPanel();
-    renderItinerary();
-  });
+  bindExpenseForm();
 
   elements.itineraryList.addEventListener('click', (event) => {
     const card = event.target.closest('.itinerary-card');
@@ -407,12 +278,6 @@ function setupForms() {
     selectedDestinationId = card.dataset.id;
     renderItinerary();
     renderBudgetPanel();
-  });
-
-  elements.expenseList.addEventListener('click', async (event) => {
-    const button = event.target.closest('button[data-expense]');
-    if (!button) return;
-    await removeExpense(button.dataset.expense);
   });
 
   elements.itineraryDetail.addEventListener('click', async (event) => {
@@ -429,20 +294,93 @@ function setupForms() {
       await adjustBudget();
     } else if (action === 'delete-destination') {
       await deleteDestination();
+      return;
+    }
+
+    const expenseButton = event.target.closest('button[data-expense]');
+    if (expenseButton) {
+      await removeExpense(expenseButton.dataset.expense);
     }
   });
+}
+
+function bindExpenseForm() {
+  elements.expenseForm = document.getElementById('expenseForm');
+  elements.expenseCategory = document.getElementById('expenseCategory');
+  elements.expenseAmount = document.getElementById('expenseAmount');
+  elements.expenseDate = document.getElementById('expenseDate');
+  elements.expenseNotes = document.getElementById('expenseNotes');
+  elements.expenseFeedback = document.getElementById('expenseFeedback');
+
+  if (!elements.expenseForm) return;
+
+  elements.expenseForm.addEventListener('submit', handleExpenseSubmit);
+}
+
+async function handleExpenseSubmit(event) {
+  event.preventDefault();
+  ensureAuthenticated();
+
+  if (!selectedDestinationId) {
+    elements.expenseFeedback.textContent = 'Select a stop to record spending.';
+    return;
+  }
+
+  const destination = getDestinationById(selectedDestinationId);
+  if (!destination) {
+    elements.expenseFeedback.textContent = 'Destination missing. Please refresh and try again.';
+    return;
+  }
+
+  const category = elements.expenseCategory?.value || 'other';
+  const amount = Number(elements.expenseAmount?.value);
+  const date = elements.expenseDate?.value;
+  const notes = elements.expenseNotes?.value?.trim() || '';
+
+  if (!amount || amount <= 0) {
+    elements.expenseFeedback.textContent = 'Enter an amount greater than zero.';
+    return;
+  }
+
+  if (!date) {
+    elements.expenseFeedback.textContent = 'Let us know when this expense happens.';
+    return;
+  }
+
+  try {
+    await supabase.from('destination_expenses').insert({
+      destination_id: destination.id,
+      category,
+      amount,
+      date,
+      notes,
+    });
+  } catch (error) {
+    console.error('Expense save failed', error);
+    elements.expenseFeedback.textContent = error.message || 'Could not record the expense.';
+    return;
+  }
+
+  elements.expenseFeedback.textContent = 'Expense tracked. Budget intel updated.';
+  elements.expenseForm.reset();
+  seedDefaultDates();
+
+  await loadDestinations();
+  renderBudgetPanel();
+  renderDashboard();
+  renderRouteStops();
+  renderMap();
 }
 
 function setupActions() {
   elements.primaryAction.addEventListener('click', () => {
     switch (currentView) {
-      case 'dashboard':
       case 'map':
-        switchView('budget');
-        focusElement(elements.destinationLocation);
+        focusElement(elements.mapSearchInput);
         break;
-      case 'budget':
-        focusElement(elements.expenseAmount);
+      case 'dashboard':
+        switchView('map');
+        focusElement(elements.mapSearchInput);
         break;
       case 'itinerary':
         openDayForm();
@@ -453,15 +391,15 @@ function setupActions() {
   });
 
   elements.openQuickDestination.addEventListener('click', () => {
-    switchView('budget');
-    focusElement(elements.destinationLocation);
+    switchView('map');
+    focusElement(elements.mapSearchInput);
   });
 
   document.addEventListener('click', (event) => {
     const trigger = event.target.closest('#emptyStateAdd');
     if (!trigger) return;
-    switchView('budget');
-    focusElement(elements.destinationLocation);
+    switchView('map');
+    focusElement(elements.mapSearchInput);
   });
 
   elements.logout.addEventListener('click', async () => {
@@ -471,6 +409,192 @@ function setupActions() {
 
   elements.centerMap.addEventListener('click', () => centerMap());
   elements.toggleHeat.addEventListener('click', () => toggleHeat());
+}
+
+function setupMapInteractions() {
+  elements.mapSearchButton?.addEventListener('click', () => {
+    if (!elements.mapSearchInput) return;
+    handleMapSearchSubmit(elements.mapSearchInput.value.trim());
+  });
+
+  elements.mapSearchInput?.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    handleMapSearchSubmit(event.target.value.trim());
+  });
+
+  elements.mapSearchResults?.addEventListener('click', (event) => {
+    const option = event.target.closest('[data-search-index]');
+    if (!option) return;
+    const index = Number(option.dataset.searchIndex);
+    const result = mapSearchResultsCache[index];
+    if (result) {
+      void addDestinationFromResult(result);
+    }
+  });
+
+  elements.routeStopsList?.addEventListener('click', (event) => {
+    const item = event.target.closest('[data-stop-id]');
+    if (!item) return;
+    const destination = getDestinationById(item.dataset.stopId);
+    if (!destination) return;
+    selectedDestinationId = destination.id;
+    focusMapOnDestination(destination);
+    switchView('itinerary');
+    renderItinerary();
+    renderBudgetPanel();
+  });
+}
+
+async function handleMapSearchSubmit(query) {
+  if (!query) {
+    clearMapSearchResults();
+    return;
+  }
+
+  renderMapSearchResults(null, { loading: true });
+
+  try {
+    const results = await searchPlaces(query);
+    renderMapSearchResults(results.slice(0, 5));
+  } catch (error) {
+    console.error('Search failed', error);
+    renderMapSearchResults([], { error: 'Search failed. Try refining your query.' });
+  }
+}
+
+function renderMapSearchResults(results, options = {}) {
+  if (!elements.mapSearchResults) return;
+  mapSearchResultsCache = Array.isArray(results) ? results : [];
+
+  if (options.loading) {
+    elements.mapSearchResults.innerHTML = '<div class="map-search-results__status">Searching…</div>';
+    return;
+  }
+
+  if (options.error) {
+    elements.mapSearchResults.innerHTML = `<div class="map-search-results__status">${escapeHtml(options.error)}</div>`;
+    return;
+  }
+
+  if (!results || !results.length) {
+    elements.mapSearchResults.innerHTML = '<div class="map-search-results__status">No places found. Try another search.</div>';
+    return;
+  }
+
+  elements.mapSearchResults.innerHTML = results
+    .map((result, index) => {
+      const primary = escapeHtml(result.display_name?.split(',')[0] || result.name || result.display_name || 'Unknown place');
+      const secondary = escapeHtml(result.display_name || '');
+      return `
+        <button type="button" class="map-search-result" data-search-index="${index}">
+          <span class="map-search-result__primary">${primary}</span>
+          <span class="map-search-result__secondary">${secondary}</span>
+        </button>
+      `;
+    })
+    .join('');
+}
+
+function clearMapSearchResults() {
+  if (!elements.mapSearchResults) return;
+  elements.mapSearchResults.innerHTML = '';
+  mapSearchResultsCache = [];
+}
+
+async function searchPlaces(query) {
+  const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=6&q=${encodeURIComponent(query)}`;
+  const response = await fetch(url, {
+    headers: {
+      'Accept-Language': 'en-US,en;q=0.9',
+    },
+  });
+  if (!response.ok) {
+    throw new Error('Search request failed');
+  }
+  return response.json();
+}
+
+async function addDestinationFromResult(result) {
+  try {
+    ensureAuthenticated();
+  } catch (error) {
+    return;
+  }
+
+  if (!result) return;
+
+  const lat = Number(result.lat);
+  const lng = Number(result.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    renderMapSearchResults([], { error: 'Could not determine coordinates for that place.' });
+    return;
+  }
+
+  const countryName = result.address?.country || 'Untitled Country';
+  const countryCode = result.address?.country_code ? result.address.country_code.toUpperCase() : '';
+  const placeName = result.display_name?.split(',')[0] || result.name || countryName;
+  const locationLabel = placeName && countryName ? `${placeName}, ${countryName}` : placeName;
+  const startDate = todayIsoString();
+  const nights = 3;
+  const routeOrder = getNextRouteOrder();
+
+  const coordinates = {
+    lat,
+    lng,
+    country: { name: countryName, code: countryCode },
+    route_order: routeOrder,
+  };
+
+  const currencyDefaults = COUNTRY_DEFAULTS[countryCode] || {};
+  coordinates.currency = {
+    code: (currencyDefaults.currency || 'GBP').toUpperCase(),
+    symbol: currencyDefaults.symbol || '£',
+    rate: Number(currencyDefaults.rate) || 1,
+  };
+
+  const payload = {
+    user_id: currentUser.id,
+    location: locationLabel,
+    start_date: startDate,
+    end_date: computeEndDate(startDate, nights),
+    nights,
+    budget: 0,
+    activities: [],
+    coordinates,
+    place_name: result.display_name,
+  };
+
+  try {
+    const { data, error } = await supabase
+      .from('destinations')
+      .insert(payload)
+      .select('*')
+      .single();
+
+    if (error) throw error;
+
+    selectedDestinationId = data.id;
+    elements.mapSearchInput.value = '';
+    clearMapSearchResults();
+
+    await loadDestinations();
+    renderAll();
+    renderRouteStops();
+    focusMapOnDestination(getDestinationById(selectedDestinationId));
+  } catch (error) {
+    console.error('Failed to add destination', error);
+    renderMapSearchResults([], { error: error.message || 'Unable to add that stop right now.' });
+  }
+}
+
+function getNextRouteOrder() {
+  const destinations = getDestinations();
+  const maxOrder = destinations.reduce((acc, dest) => {
+    const order = Number(dest.routeOrder);
+    return Number.isFinite(order) ? Math.max(acc, order) : acc;
+  }, 0);
+  return maxOrder + 1;
 }
 
 async function tryRestoreSession() {
@@ -511,7 +635,9 @@ async function enterApp(user) {
   }
 
   renderAll();
-  switchView(currentView);
+  if (!handleHashNavigation()) {
+    switchView(currentView);
+  }
 }
 
 function exitApp() {
@@ -601,18 +727,32 @@ async function loadDestinations() {
     selectedDestinationId = null;
   }
 
-  refreshDestinationSelectors();
+  refreshDestinationSelection();
 }
 
 function normalizeDestination(row) {
   const activities = Array.isArray(row.activities) ? row.activities : [];
   let coordinates = null;
+  let routeOrder = Number(row.coordinates?.route_order);
   if (row.coordinates && typeof row.coordinates === 'object') {
     const lat = Number(row.coordinates.lat);
     const lng = Number(row.coordinates.lng);
     if (Number.isFinite(lat) && Number.isFinite(lng)) {
-      coordinates = { lat, lng };
+      coordinates = {
+        lat,
+        lng,
+        country: row.coordinates.country && typeof row.coordinates.country === 'object'
+          ? {
+              name: row.coordinates.country.name || '',
+              code: row.coordinates.country.code || '',
+            }
+          : null,
+        route_order: Number.isFinite(routeOrder) ? routeOrder : undefined,
+      };
     }
+  }
+  if (!Number.isFinite(routeOrder)) {
+    routeOrder = null;
   }
 
   const days = Array.isArray(row.destination_days)
@@ -654,36 +794,25 @@ function normalizeDestination(row) {
     updatedAt: row.updated_at,
     days,
     expenses,
+    routeOrder,
   };
 }
 
 function renderAll() {
-  refreshDestinationSelectors();
+  refreshDestinationSelection();
   renderDashboard();
-  renderBudgetPanel();
   renderItinerary();
+  renderBudgetPanel();
   renderMap();
+  renderRouteStops();
 }
 
-function refreshDestinationSelectors() {
+function refreshDestinationSelection() {
   const destinations = getDestinations();
-  const options = destinations
-    .map((dest) => `<option value="${dest.id}">${escapeHtml(dest.location)}</option>`)
-    .join('');
-
-  elements.expenseDestination.innerHTML = `<option value="">Choose destination…</option>${options}`;
-  elements.budgetDestinationPicker.innerHTML = `<option value="">All destinations</option>${options}`;
-
   if (selectedDestinationId && destinations.some((dest) => dest.id === selectedDestinationId)) {
-    elements.expenseDestination.value = selectedDestinationId;
-    elements.budgetDestinationPicker.value = selectedDestinationId;
-  } else if (destinations.length) {
-    selectedDestinationId = destinations[0].id;
-    elements.expenseDestination.value = selectedDestinationId;
-    elements.budgetDestinationPicker.value = selectedDestinationId;
-  } else {
-    selectedDestinationId = null;
+    return;
   }
+  selectedDestinationId = destinations[0]?.id || null;
 }
 
 function renderDashboard() {
@@ -768,18 +897,24 @@ function renderDashboard() {
 }
 
 function renderBudgetPanel() {
+  if (!elements.budgetSummary || !elements.expenseList) return;
   const destinations = getDestinations();
   const selected = selectedDestinationId ? getDestinationById(selectedDestinationId) : null;
+  const setSubtitle = (message) => {
+    if (elements.budgetSubtitle) {
+      elements.budgetSubtitle.textContent = message;
+    }
+  };
 
   if (!destinations.length) {
-    elements.budgetSubtitle.textContent = 'Add destinations to unlock budget insights.';
+    setSubtitle('Add destinations to unlock budget insights.');
     elements.budgetSummary.innerHTML = '';
     elements.expenseList.innerHTML = '<div class="empty-state"><p>No expenses yet. Start logging to see the picture.</p></div>';
     return;
   }
 
   if (!selected) {
-    elements.budgetSubtitle.textContent = 'Viewing all destinations.';
+    setSubtitle('Viewing all destinations.');
     const totalBudget = destinations.reduce((sum, dest) => sum + (dest.budget || 0), 0);
     const totalSpent = destinations.reduce(
       (sum, dest) => sum + dest.expenses.reduce((acc, expense) => acc + expense.amount, 0),
@@ -804,7 +939,7 @@ function renderBudgetPanel() {
     return;
   }
 
-  elements.budgetSubtitle.textContent = `Currently focused on ${selected.location}.`;
+  setSubtitle(`Currently focused on ${selected.location}.`);
   const spent = selected.expenses.reduce((sum, expense) => sum + expense.amount, 0);
   const remaining = Math.max((selected.budget || 0) - spent, 0);
   const perNight = spent / Math.max(selected.nights, 1);
@@ -826,7 +961,7 @@ function renderBudgetPanel() {
 
 function renderExpenseList(expenses) {
   if (!expenses.length) {
-    elements.expenseList.innerHTML = '<div class="empty-state"><p>No expenses yet. Record the first one to unlock analytics.</p></div>';
+    elements.expenseList.innerHTML = '<div class="expense-list__empty">No expenses yet. Use the form above to capture your first spend.</div>';
     return;
   }
 
@@ -861,8 +996,8 @@ function renderItinerary() {
     elements.itineraryDetail.innerHTML = `
       <div class="empty-state">
         <h3>Select a destination</h3>
-        <p>Pick anywhere from the left to drill into its day-by-day blueprint.</p>
-        <button class="ghost" id="emptyStateAdd" type="button">Create destination</button>
+        <p>Use the route planner to drop your first pin and unlock itinerary planning.</p>
+        <button class="ghost" id="emptyStateAdd" type="button">Open route planner</button>
       </div>`;
     return;
   }
@@ -894,8 +1029,8 @@ function renderItineraryDetail(destination) {
     elements.itineraryDetail.innerHTML = `
       <div class="empty-state">
         <h3>Select a destination</h3>
-        <p>Pick anywhere from the left to drill into its day-by-day blueprint.</p>
-        <button class="ghost" id="emptyStateAdd" type="button">Create destination</button>
+        <p>Use the route planner to drop your first pin and unlock itinerary planning.</p>
+        <button class="ghost" id="emptyStateAdd" type="button">Open route planner</button>
       </div>`;
     return;
   }
@@ -929,12 +1064,14 @@ function renderItineraryDetail(destination) {
     .join('');
 
   elements.itineraryDetail.innerHTML = `
-    <div>
-      <h3>${escapeHtml(destination.location)}</h3>
-      <div class="detail-meta">
-        <span>${range}</span>
-        <span>${destination.nights} night${destination.nights === 1 ? '' : 's'}</span>
-        <span>Budget ${currencyFormatter.format(destination.budget || 0)}</span>
+    <div class="destination-overview">
+      <div>
+        <h3>${escapeHtml(destination.location)}</h3>
+        <div class="detail-meta">
+          <span>${range}</span>
+          <span>${destination.nights} night${destination.nights === 1 ? '' : 's'}</span>
+          <span>Budget ${currencyFormatter.format(destination.budget || 0)}</span>
+        </div>
       </div>
       <div class="detail-actions">
         <button class="ghost small" data-action="edit-activities" type="button">Update experiences</button>
@@ -942,32 +1079,80 @@ function renderItineraryDetail(destination) {
         <button class="ghost small" data-action="delete-destination" type="button">Remove destination</button>
       </div>
     </div>
-    <div>
-      <h4>Top experiences</h4>
-      <div class="top-activities">${activities}</div>
-    </div>
-    <div>
-      <h4>Day blueprint</h4>
-      <div class="day-list">${days || '<div class="card-meta">No days planned yet. Use the form below to architect them.</div>'}</div>
-    </div>
-    <form id="dayForm" class="form" novalidate>
-      <div class="field-group">
-        <div class="field">
-          <label for="dayTitle">Title</label>
-          <input id="dayTitle" name="title" placeholder="Day 1 — Old Town immersion" required />
+    <div class="detail-sections">
+      <section class="detail-section budget-section">
+        <div class="detail-section__header">
+          <h4>Budget &amp; spend</h4>
+          <p class="panel-sub" id="budgetSubtitle">Keep logging expenses to unlock insights.</p>
         </div>
-        <div class="field">
-          <label for="dayDate">Date</label>
-          <input id="dayDate" name="date" type="date" />
-        </div>
-      </div>
-      <div class="field">
-        <label for="dayNotes">Highlights &amp; flow</label>
-        <textarea id="dayNotes" name="notes" rows="3" placeholder="Morning temple run, street food crawl, sunset drinks"></textarea>
-      </div>
-      <button class="secondary" type="submit">Add day plan</button>
-    </form>
+        <div class="budget-summary" id="budgetSummary"></div>
+        <form id="expenseForm" class="form form-inline" novalidate>
+          <div class="field-group">
+            <div class="field">
+              <label for="expenseCategory">Category</label>
+              <select id="expenseCategory">
+                <option value="stay">Stay</option>
+                <option value="food">Food &amp; Drink</option>
+                <option value="transport">Transport</option>
+                <option value="experience">Experiences</option>
+                <option value="shopping">Shopping</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="expenseAmount">Amount</label>
+              <input id="expenseAmount" type="number" min="0" step="0.01" placeholder="85.50" required />
+            </div>
+          </div>
+          <div class="field-group">
+            <div class="field">
+              <label for="expenseDate">Date</label>
+              <input id="expenseDate" type="date" required />
+            </div>
+            <div class="field">
+              <label for="expenseNotes">Notes</label>
+              <input id="expenseNotes" type="text" placeholder="Cooking class" />
+            </div>
+          </div>
+          <button class="secondary" type="submit">Record expense</button>
+          <p class="form-feedback" id="expenseFeedback"></p>
+        </form>
+        <div class="expense-list" id="expenseList"></div>
+      </section>
+      <section class="detail-section">
+        <h4>Top experiences</h4>
+        <div class="top-activities">${activities}</div>
+      </section>
+      <section class="detail-section">
+        <h4>Day blueprint</h4>
+        <div class="day-list">${days || '<div class="card-meta">No days planned yet. Use the form below to architect them.</div>'}</div>
+        <form id="dayForm" class="form" novalidate>
+          <div class="field-group">
+            <div class="field">
+              <label for="dayTitle">Title</label>
+              <input id="dayTitle" name="title" placeholder="Day 1 — Old Town immersion" required />
+            </div>
+            <div class="field">
+              <label for="dayDate">Date</label>
+              <input id="dayDate" name="date" type="date" />
+            </div>
+          </div>
+          <div class="field">
+            <label for="dayNotes">Highlights &amp; flow</label>
+            <textarea id="dayNotes" name="notes" rows="3" placeholder="Morning temple run, street food crawl, sunset drinks"></textarea>
+          </div>
+          <button class="secondary" type="submit">Add day plan</button>
+        </form>
+      </section>
+    </div>
   `;
+
+  elements.budgetSummary = document.getElementById('budgetSummary');
+  elements.budgetSubtitle = document.getElementById('budgetSubtitle');
+  elements.expenseList = document.getElementById('expenseList');
+
+  bindExpenseForm();
+  seedDefaultDates();
 
   const dayForm = document.getElementById('dayForm');
   dayForm.addEventListener('submit', async (event) => {
@@ -1020,20 +1205,30 @@ function renderMap() {
     return;
   }
 
-  const sorted = destinations.slice().sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
+  const sorted = destinations
+    .slice()
+    .sort((a, b) => {
+      const orderA = Number.isFinite(a.routeOrder) ? a.routeOrder : Number.POSITIVE_INFINITY;
+      const orderB = Number.isFinite(b.routeOrder) ? b.routeOrder : Number.POSITIVE_INFINITY;
+      if (orderA !== orderB) return orderA - orderB;
+      return new Date(a.startDate) - new Date(b.startDate);
+    });
+
   const coords = [];
 
   sorted.forEach((dest, index) => {
-    const lat = Number(dest.coordinates.lat);
-    const lng = Number(dest.coordinates.lng);
+    const lat = Number(dest.coordinates?.lat);
+    const lng = Number(dest.coordinates?.lng);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
       return;
     }
 
+    const order = Number.isFinite(dest.routeOrder) ? dest.routeOrder : index + 1;
+
     const marker = L.marker([lat, lng], {
       icon: L.divIcon({
         className: 'map-marker',
-        html: `<span>${index + 1}</span>`,
+        html: `<span>${order}</span>`,
         iconSize: [36, 36],
         iconAnchor: [18, 18],
       }),
@@ -1046,8 +1241,10 @@ function renderMap() {
 
     marker.on('click', () => {
       selectedDestinationId = dest.id;
+      focusMapOnDestination(dest);
       switchView('itinerary');
       renderItinerary();
+      renderBudgetPanel();
     });
 
     mapMarkers.push(marker);
@@ -1068,6 +1265,39 @@ function renderMap() {
   updateHeatLayer();
 }
 
+function renderRouteStops() {
+  if (!elements.routeStopsList) return;
+  const destinations = getDestinations();
+  if (!destinations.length) {
+    elements.routeStopsList.innerHTML = '<div class="route-stops__empty">Add your first stop to begin plotting the journey.</div>';
+    return;
+  }
+
+  elements.routeStopsList.innerHTML = destinations
+    .map((dest, index) => {
+      const order = Number.isFinite(dest.routeOrder) ? dest.routeOrder : index + 1;
+      const country = dest.coordinates?.country?.name ? ` • ${escapeHtml(dest.coordinates.country.name)}` : '';
+      return `
+        <button type="button" class="route-stop" data-stop-id="${dest.id}" title="Open ${escapeHtml(dest.location)}">
+          <span class="route-stop__order">${order}</span>
+          <span class="route-stop__label">
+            <span class="route-stop__name">${escapeHtml(dest.location)}</span>
+            <span class="route-stop__meta">${escapeHtml(formatDateRange(dest.startDate, dest.endDate))}${country}</span>
+          </span>
+        </button>
+      `;
+    })
+    .join('');
+}
+
+function focusMapOnDestination(destination) {
+  if (!mapInstance || !destination?.coordinates) return;
+  const lat = Number(destination.coordinates.lat);
+  const lng = Number(destination.coordinates.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+  mapInstance.flyTo([lat, lng], 8, { duration: 0.8 });
+}
+
 async function removeExpense(expenseId) {
   if (!expenseId) return;
   const { error } = await supabase.from('destination_expenses').delete().eq('id', expenseId);
@@ -1078,6 +1308,8 @@ async function removeExpense(expenseId) {
   await loadDestinations();
   renderBudgetPanel();
   renderDashboard();
+  renderRouteStops();
+  renderMap();
 }
 
 async function removeDay(dayId) {
@@ -1183,7 +1415,7 @@ async function deleteDestination() {
   renderAll();
 }
 
-function switchView(view) {
+function switchView(view, options = {}) {
   if (!viewConfig[view]) return;
   currentView = view;
   elements.navLinks.forEach((link) => link.classList.toggle('is-active', link.dataset.view === view));
@@ -1194,12 +1426,37 @@ function switchView(view) {
   elements.viewSubtitle.textContent = viewConfig[view].subtitle;
   elements.primaryAction.textContent = viewConfig[view].action;
 
+  if (!options.skipHashUpdate) {
+    updateLocationHash(view);
+  }
+
   if (view === 'map') {
     setTimeout(() => {
       mapInstance?.invalidateSize();
       renderMap();
     }, 200);
   }
+}
+
+function getHashView() {
+  const hash = window.location.hash.replace('#', '');
+  return viewConfig[hash] ? hash : null;
+}
+
+function handleHashNavigation() {
+  const target = getHashView();
+  if (!target) return false;
+  if (target !== currentView) {
+    switchView(target, { skipHashUpdate: true });
+  }
+  return true;
+}
+
+function updateLocationHash(view) {
+  const baseUrl = window.location.pathname + window.location.search;
+  const hashTarget = `#${view}`;
+  if (window.location.hash === hashTarget) return;
+  window.history.replaceState(null, '', `${baseUrl}${hashTarget}`);
 }
 
 function initializeMap() {
@@ -1209,8 +1466,8 @@ function initializeMap() {
     zoomControl: false,
   });
 
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap contributors',
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
     maxZoom: 18,
   }).addTo(mapInstance);
 
@@ -1258,8 +1515,8 @@ function updateHeatLayer() {
 
 function openDayForm() {
   if (!selectedDestinationId) {
-    switchView('budget');
-    focusElement(elements.destinationLocation);
+    switchView('map');
+    focusElement(elements.mapSearchInput);
     return;
   }
   const titleInput = document.getElementById('dayTitle');
@@ -1274,23 +1531,26 @@ function openDayForm() {
 function clearForms() {
   elements.loginForm.reset();
   elements.signupForm.reset();
-  elements.destinationForm.reset();
-  elements.expenseForm.reset();
+  elements.expenseForm?.reset();
 }
 
 function seedDefaultDates() {
   const today = new Date();
   const isoToday = today.toISOString().slice(0, 10);
-  if (elements.destinationStart && !elements.destinationStart.value) {
-    elements.destinationStart.value = isoToday;
-  }
   if (elements.expenseDate && !elements.expenseDate.value) {
     elements.expenseDate.value = isoToday;
   }
 }
 
 function getDestinations() {
-  return state.destinations.slice();
+  return state.destinations
+    .slice()
+    .sort((a, b) => {
+      const orderA = Number.isFinite(a.routeOrder) ? a.routeOrder : Number.POSITIVE_INFINITY;
+      const orderB = Number.isFinite(b.routeOrder) ? b.routeOrder : Number.POSITIVE_INFINITY;
+      if (orderA !== orderB) return orderA - orderB;
+      return new Date(a.startDate) - new Date(b.startDate);
+    });
 }
 
 function getDestinationById(id) {
